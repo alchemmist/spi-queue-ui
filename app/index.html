@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPI · Очередь</title>
+<link rel="stylesheet" href="/queue/style.css">
+<script src="/queue/app.js" defer></script>
+<header><h1>SPI / Очередь</h1><a href="/">RustFS</a></header>
+<p>Задания backend, не история запусков n8n. Отмена убирает ожидающее задание из обработки, но сохраняет его историю.</p>
+<section aria-label="Сводка"><p id="counts">Загрузка…</p><p id="limits"></p></section>
+<nav aria-label="Управление списком">
+<label>Показать <select id="filter"><option value="pending">В работе и ожидающие</option><option value="processing">Активное / Wait</option><option value="queued">Новые</option><option value="retry">Повторная попытка</option><option value="dead">Остановленные (dead)</option><option value="complete">Завершённые</option><option value="cancelled">Отменённые</option><option value="dry_run">Dry run</option></select></label>
+<button id="refresh" type="button">Обновить</button>
+<label><input id="auto" type="checkbox" checked> Авто · 15 с</label>
+</nav>
+<p id="status" role="status" aria-live="polite"></p>
+<div class="table"><table><thead><tr><th>Алерт / задание</th><th>Состояние / этап</th><th>Время</th><th>Прогресс / история</th><th>Действие</th></tr></thead><tbody id="items"></tbody></table></div>
+<footer><button id="prev" type="button">← Назад</button><span id="page"></span><button id="next" type="button">Далее →</button></footer>
+<p class="note">Активные задания, включая Wait, отменять нельзя. Dead не подбираются автоматически. «Последняя ошибка» может относиться к предыдущей попытке, а не к текущему выполнению. Отмена не закрывает GitHub issue и не удаляет evidence.</p>
+</html>

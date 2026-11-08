@@ -1,0 +1,43 @@
+# Enable ONLY after Application+values exist in homelab and backup gate is accepted.
+# Kept outside workflows intentionally: this is not an operational release yet.
+name: Release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+jobs:
+  publish-and-deploy:
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tests -v
+      - run: node --check app/app.js
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: harbor.socrat.alchemmist.xyz
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: Build immutable image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: harbor.socrat.alchemmist.xyz/homelab/spi-queue-ui:${{ github.sha }}
+      # A fresh verified HOST SQLite backup is still mandatory immediately
+      # before the following Git write. Environment approval alone is NOT proof.
+      # Do not enable this workflow until that control is integrated.
+      - name: Deploy to Socrat
+        uses: alchemmist/deploy-to-socrat@v1
+        with:
+          app: spi-queue-ui
+          token: ${{ secrets.HOMELAB_DEPLOY_KEY }}
+          image_version: ${{ steps.image.outputs.digest }}
