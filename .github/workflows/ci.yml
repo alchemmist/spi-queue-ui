@@ -23,6 +23,9 @@ jobs:
       - name: Build standalone image (no registry credentials, no deployment)
         run: docker build --tag spi-queue-ui:test .
   publish:
+    concurrency:
+      group: spi-queue-ui-release
+      cancel-in-progress: false
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.PUBLISH_ENABLED == 'true'
     needs: test-and-build
     runs-on: ubuntu-24.04
@@ -46,3 +49,9 @@ jobs:
           tags: harbor.socrat.alchemmist.xyz/homelab/spi-queue-ui:${{ github.sha }}
       - name: Record image digest
         run: echo '${{ steps.image.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy to Socrat
+        uses: alchemmist/deploy-to-socrat@v1
+        with:
+          app: spi-queue-ui
+          token: ${{ secrets.HOMELAB_DEPLOY_KEY }}
+          image_version: ${{ steps.image.outputs.digest }}

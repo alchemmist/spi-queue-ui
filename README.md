@@ -37,7 +37,12 @@ no service-account token, dedicated read-only token Secret and narrow networking
 
 CI tests PRs without deployment credentials; the main-branch image job uses
 scoped Harbor secrets to publish an immutable full-SHA image.
-The release draft is `.github/release-workflow.yml.example`, **not enabled**.
+The real release job is in `.github/workflows/ci.yml` and is currently gated
+by repository variable `PUBLISH_ENABLED=false`: first hosted-runner login
+failed on TLS handshake before authentication, and bounded diagnostics found
+both public Harbor ingress IPs timing out. This is not a bad-password diagnosis.
+Do not enable or claim a release until the registry route is healthy.
+The historical release example is not an additional workflow.
 The required sequence from homelab wiki is:
 
 1. Separate `charts/spi-queue-ui`, `deploy/spi-queue-ui/values.yaml` and
