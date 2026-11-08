@@ -1,4 +1,4 @@
-# Enable ONLY after Application+values exist in homelab and backup gate is accepted.
+# Enable ONLY after Application+values exist in homelab.
 # Kept outside workflows intentionally: this is not an operational release yet.
 name: Release
 on:
@@ -32,9 +32,6 @@ jobs:
           context: .
           push: true
           tags: harbor.socrat.alchemmist.xyz/homelab/spi-queue-ui:${{ github.sha }}
-      # A fresh verified HOST SQLite backup is still mandatory immediately
-      # before the following Git write. Environment approval alone is NOT proof.
-      # Do not enable this workflow until that control is integrated.
       - name: Deploy to Socrat
         uses: alchemmist/deploy-to-socrat@v1
         with:

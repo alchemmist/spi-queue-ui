@@ -53,12 +53,11 @@ Required CI secrets are `HARBOR_USERNAME`, `HARBOR_PASSWORD`,
 Never use `latest`, CI kubectl/helm upgrades, Argo API sync or image overrides.
 The SPI worker, encrypted n8n/PVC and existing workflows remain separately owned.
 
-**Migration is not complete.** Existing deployment is still owned by spi-triage.
-Auth has an observed large-header transit issue on part of the cluster; validated
-Reader-node placement is a scoped workaround, not a global network repair.
-A mandatory fresh HOST SQLite backup capture lacked its control receipt. No new
-production migration/release is allowed until a verified backup is available.
-Production environment approval alone does not satisfy that backup requirement.
-The old chart's backend queue API/Secret must remain enabled when moving only UI
-resources; disabling its whole `queueUI.enabled` flag would restart/disable it.
-Do not let two Argo Applications concurrently manage the same frontend resources.
+## Deployment ownership
+
+UI-only code/image releases do not require a SQLite backup: the UI has no PVC.
+The owner explicitly approved this independent release policy. This does not
+allow destructive backend/data changes. The SPI backend queue API and dedicated
+Secret remain enabled; only frontend resource ownership moves to this app.
+SSO, TLS and cancellation safety remain mandatory. Do not concurrently manage
+frontend resources from two Argo Applications.

@@ -20,3 +20,27 @@ jobs:
         run: node --check app/app.js
       - name: Build standalone image (no registry credentials, no deployment)
         run: docker build --tag spi-queue-ui:test .
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test-and-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: harbor.socrat.alchemmist.xyz
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: Build immutable image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: harbor.socrat.alchemmist.xyz/homelab/spi-queue-ui:${{ github.sha }}
+      - name: Record image digest
+        run: echo '${{ steps.image.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
