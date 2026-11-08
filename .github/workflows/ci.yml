@@ -18,10 +18,12 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: JavaScript syntax
         run: node --check app/app.js
+      - name: Diagnose canonical Harbor TLS routes (anonymous, bounded)
+        run: python3 scripts/registry_tls_check.py
       - name: Build standalone image (no registry credentials, no deployment)
         run: docker build --tag spi-queue-ui:test .
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.PUBLISH_ENABLED == 'true'
     needs: test-and-build
     runs-on: ubuntu-24.04
     timeout-minutes: 20
