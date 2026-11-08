@@ -35,7 +35,8 @@ no service-account token, dedicated read-only token Secret and narrow networking
 
 ## Socrat release contract and current state
 
-CI runs tests and builds an image without deployment credentials on PR/main.
+CI tests PRs without deployment credentials; the main-branch image job uses
+scoped Harbor secrets to publish an immutable full-SHA image.
 The release draft is `.github/release-workflow.yml.example`, **not enabled**.
 The required sequence from homelab wiki is:
 
