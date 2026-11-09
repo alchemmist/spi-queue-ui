@@ -2,7 +2,7 @@
 import http.client, json, socket, time
 HOST = 'harbor.socrat.alchemmist.xyz'
 print(json.dumps({'dns_addresses': sorted({x[4][0] for x in socket.getaddrinfo(HOST, 443, type=socket.SOCK_STREAM)})}))
-for ip in ('109.173.40.247', '109.120.141.97'):
+for ip in ('109.173.40.247', '109.120.141.60'):
     c = http.client.HTTPSConnection(HOST, 443, timeout=6)
     c._create_connection = lambda address, timeout=None, source_address=None, ip=ip: socket.create_connection((ip, address[1]), timeout, source_address)
     start = time.monotonic()

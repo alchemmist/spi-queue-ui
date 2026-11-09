@@ -30,6 +30,24 @@ class ReadWaitTests(IntegrationTests):
             self.assertEqual(c.execute('SELECT count(*) FROM job_failure_budget').fetchone()[0],0)
 
 
+    def test_graph_capture_budget_resumes_same_collect_owner_without_paid_replay(self):
+        sent=self.engine.run_v1('match',self.data)
+        self.evidence.collect.side_effect=[Failure('GRAPH_CAPTURE_DEFERRED',1),{'missing':[]}]
+        waiting=self.engine.run_v1('collect',sent)
+        self.assertEqual(waiting['status'],'deferred')
+        self.assertEqual(waiting['code'],'GRAPH_CAPTURE_DEFERRED')
+        self.assertEqual(waiting['deadline'],sent['deadline'])
+        self.assertEqual(self.engine.run_v1('collect',sent),waiting)
+        self.assertEqual(self.evidence.collect.call_count,1)
+        self.engine.store=Store(self.store.path);self.engine.store.recover_on_start()
+        self.now=waiting['due_at']
+        result=self.engine.run_v1('collect',waiting)
+        self.assertEqual(result['stage'],'analyze')
+        self.assertEqual(self.model.match.call_count,1)
+        self.model.analyze.assert_not_called()
+        with self.store.db() as c:self.assertEqual(c.execute('select count(*) from job_failure_budget').fetchone()[0],0)
+
+
 @patch.dict('os.environ',{'SPI_TOKEN_ACCOUNTING_MODE':'byte-bound-v1'})
 class RepairTests(unittest.TestCase):
     def test_repair_budget_survives_admission_and_restart(self):

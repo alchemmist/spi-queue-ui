@@ -630,5 +630,18 @@ class Evidence:
             try:known.append(Path(self.github.token_file).read_text().strip())
             except (OSError,AttributeError):pass
         bundle=prepare_bundle(event,result,artifacts,extra['links'],known)
+        if os.environ.get('SPI_GRAPHS_ENABLED','false')=='true':
+            from graph_evidence import collect as collect_graphs, attach as attach_graphs
+            from graph_client import GraphClient
+            from graph_gateway import secret as graph_secret
+            from graph_contract import GraphError
+            try:
+                if os.environ.get('SPI_EVIDENCE_BACKEND')!='s3':raise GraphError('GRAPH_REQUIRES_S3')
+                client=GraphClient(graph_secret('/graph-client/spi'))
+                graphs,missing=collect_graphs(event,client,deadline=min(time.monotonic()+60,getattr(REQUEST_DEADLINE,'at',float('inf'))-1))
+                bundle=attach_graphs(bundle,graphs,missing)
+            except (GraphError,OSError,ValueError) as exc:
+                if isinstance(exc,GraphError) and exc.code=='GRAPH_CAPTURE_DEFERRED':raise Failure(exc.code,retry_after=1) from None
+                bundle['manifest']['missing'].append({'source':'graphs','reason':exc.code if isinstance(exc,GraphError) else 'GRAPH_CONFIGURATION_INVALID'})
         result=redact(result,known);result['bundle']=bundle
         return result

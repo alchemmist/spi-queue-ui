@@ -93,6 +93,7 @@ def trusted_comment(comment):
 def publish_parts(github,number,bundle,progress,save):
     """Persist before each POST; an unobservable ambiguous write requires review."""
     if not bundle:return
+    if bundle.get('binary_refs'):raise Failure('GRAPH_REQUIRES_S3')
     comments=[c for c in github.comments(number) if trusted_comment(c)]
     for part in bundle['parts']:
         marker=part['marker'];found=next((c for c in comments if marker in (c.get('body') or '')),None)
@@ -133,9 +134,15 @@ def storage_objects(bundle):
     prefix='spi/v1/'+manifest['event_key']+'/'+sha+'/'
     objects=[(prefix+'manifest.json',text)]
     for row in manifest['artifacts']:
-        parts=sorted((p for p in bundle['parts'] if p['id']==row['id']),key=lambda p:p['part'])
-        raw=''.join(p['text'] for p in parts).encode('ascii')
-        if len(raw)!=row['stored_chars'] or hashlib.sha256(raw).hexdigest()!=row['sha256']:
+        if row['id'] in bundle.get('binary_refs',{}):
+            from graph_evidence import read_artifact
+            try:raw=read_artifact(bundle['binary_refs'][row['id']])
+            except (ValueError,OSError):raise Failure('STORAGE_INTEGRITY') from None
+        else:
+            parts=sorted((p for p in bundle['parts'] if p['id']==row['id']),key=lambda p:p['part'])
+            raw=''.join(p['text'] for p in parts).encode('ascii')
+        size=row.get('stored_bytes') if manifest.get('format')=='socrat-evidence-v3' else row['stored_chars']
+        if len(raw)!=size or hashlib.sha256(raw).hexdigest()!=row['sha256']:
             raise Failure('STORAGE_INTEGRITY')
         objects.append((prefix+row['id']+'-'+row['name'],raw))
     return objects
@@ -146,6 +153,25 @@ def storage_markdown(objects):
     origin=os.environ.get('SPI_EVIDENCE_PUBLIC_ORIGIN','https://spi-evidence.socrat.alchemmist.xyz')
     if origin not in ('https://rustfs.socrat.alchemmist.xyz','https://spi-evidence.socrat.alchemmist.xyz'):
         raise Failure('STORAGE_PUBLIC_ORIGIN')
-    return '\n\n## Reproducible evidence\nSanitized, bounded evidence; truncation and missing reads are recorded in the manifest. Not every byte was reviewed by the model. Sign-in required.\n'+ '\n'.join(
+    text= '\n\n## Reproducible evidence\nSanitized, bounded evidence; truncation and missing reads are recorded in the manifest. Not every byte was reviewed by the model. Sign-in required.\n'+ '\n'.join(
         '- ['+('MANIFEST' if i==0 else key.rsplit('/',1)[1])+']('+origin+'/'+key+')'
         for i,(key,raw) in enumerate(objects))
+
+    try:manifest=json.loads(objects[0][1].decode('ascii'))
+    except (ValueError,UnicodeError):return text
+    keys={key.rsplit('/',1)[1]:key for key,raw in objects}
+    graphs=[]
+    for row in manifest.get('artifacts',[]):
+        if row.get('mime_type')!='image/png' or row.get('source',{}).get('kind')!='grafana_panel_png':continue
+        source=row['source'];name=row['id']+'-'+row['name']
+        if name not in keys:raise Failure('STORAGE_INTEGRITY')
+        title=' '.join(str(source.get('title',row['name'])).split())[:160]
+        title=title.replace('\\','\\\\').replace('[','\\[').replace(']','\\]').replace('<','&lt;').replace('>','&gt;')
+        from datetime import datetime,timezone
+        try:
+            start=datetime.fromtimestamp(source['from_ms']/1000,timezone.utc).isoformat()
+            end=datetime.fromtimestamp(source['to_ms']/1000,timezone.utc).isoformat()
+        except (KeyError,TypeError,ValueError,OverflowError):raise Failure('STORAGE_INTEGRITY') from None
+        graphs.append('- ['+title+' (PNG)]('+origin+'/'+keys[name]+') — '+start+' to '+end+'.')
+    if graphs:text+='\n\n## Graphs\nPrivate PNG evidence; sign in through the existing Evidence/Authentik flow. Images are for human review, not model input.\n'+'\n'.join(graphs)
+    return text
