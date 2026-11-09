@@ -1,0 +1,17 @@
+name: Harbor transport diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Anonymous Python TLS controls
+        run: python3 scripts/registry_tls_check.py
+      - name: Anonymous Go default and classical curve TLS controls
+        run: go version && go run scripts/harbor_tls_probe.go
