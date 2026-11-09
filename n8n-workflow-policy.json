@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "handler_id": "iZn7biFh6321a1w8",
+  "handler_name": "Workflow Failure Alerts",
+  "handler_template": null,
+  "workflow_roots": [
+    "integrations/n8n"
+  ]
+}

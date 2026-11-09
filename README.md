@@ -128,3 +128,14 @@ The mistakenly bootstrapped `spi-queue-ui` Application was empty/disabled; its
 source is retired, not adopted as a separate service. The former repository URL
 redirects to this renamed full-service repository; release secrets/history stay
 with the same GitHub repository identity.
+
+
+## Native workflow failure policy
+
+New integration templates are discovered by
+`uv run python scripts/n8n/check_failure_alerts.py`. If the handler binding is
+missing, run that command with `--fix`, review/commit the JSON and use the existing
+native sync. No live API or automatic commit is performed by the checker. The
+new policy/fixer checks and full service parity check are declared in `qg.yaml`;
+use `uv run qg generate` / `uv run qg validate`, never edit their generated YAML.
+See [workflow policy and QG bootstrap boundaries](docs/n8n/workflow-policy.md).

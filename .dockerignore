@@ -14,3 +14,7 @@
 !scripts/test_all.py
 **/__pycache__/
 **/*.pyc
+!scripts/harbor_ci_auth.py
+!scripts/n8n/
+!scripts/n8n/check_failure_alerts.py
+!n8n-workflow-policy.json

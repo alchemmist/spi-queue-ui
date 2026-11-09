@@ -31,6 +31,8 @@ COPY frontend/ /workspace/frontend/
 COPY integrations/ /workspace/integrations/
 COPY tests/ /workspace/tests/
 COPY scripts/test_all.py /workspace/scripts/test_all.py
+COPY scripts/n8n/check_failure_alerts.py /workspace/scripts/n8n/check_failure_alerts.py
+COPY n8n-workflow-policy.json /workspace/n8n-workflow-policy.json
 COPY scripts/harbor_ci_auth.py /workspace/scripts/harbor_ci_auth.py
 RUN chmod -R a+rX /workspace
 USER 10001:10001
