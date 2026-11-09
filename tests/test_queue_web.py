@@ -5,10 +5,12 @@ import json
 from pathlib import Path
 import subprocess
 import threading
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'frontend'))
 spec = importlib.util.spec_from_file_location('queue_web', ROOT / 'frontend/queue_web.py')
 web = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(web)
@@ -28,7 +30,7 @@ class QueueWebTests(unittest.TestCase):
         cls.server.shutdown(); cls.server.server_close(); cls.thread.join(2)
         cls.auth_patch.stop()
     def request(self, method='GET', path='/queue/', body=None, extra=None):
-        headers = {'Host': 'rustfs.socrat.alchemmist.xyz', 'X-authentik-groups': 'homelab-owner'}
+        headers = {'Host': 'spi.socrat.alchemmist.xyz', 'X-authentik-groups': 'homelab-owner'}
         headers.update(extra or {})
         c = RealConnection('127.0.0.1', self.server.server_port, timeout=3)
         c.request(method, path, body=body, headers=headers)
@@ -55,7 +57,7 @@ class QueueWebTests(unittest.TestCase):
         with patch.object(web.Handler, 'authorization', return_value=401):
             code, headers, _ = self.request(extra={'X-authentik-groups':'homelab-owner'})
         self.assertEqual(code, 302)
-        self.assertEqual(web.urllib.parse.parse_qs(web.urllib.parse.urlsplit(headers['Location']).query)['rd'], [web.ORIGIN + '/queue/'])
+        self.assertEqual(headers['Location'], '/login')
 
     def test_csrf_rejected_before_upstream(self):
         for extra in ({}, {'Origin':'https://evil.invalid', 'X-SPI-Queue':'1'},
@@ -88,28 +90,59 @@ class QueueWebTests(unittest.TestCase):
         self.assertNotIn('Access-Control-Allow-Origin', response_headers)
 
 class QueueAuthorizationTests(unittest.TestCase):
-    def test_caller_groups_never_authorize_without_real_cookie(self):
+    def test_caller_identity_headers_never_authorize_without_native_session(self):
         from email.message import Message
-        handler = Mock(); handler.headers = Message(); handler.headers['X-authentik-groups'] = 'homelab-owner'
-        with patch.object(web.AUTH, 'open') as auth:
-            self.assertEqual(RealAuthorization(handler), 401)
-            auth.assert_not_called()
-
-    def test_only_trusted_auth_response_groups_grant_access(self):
-        from email.message import Message
+        from queue_oidc import OIDC
         handler = Mock(); handler.headers = Message()
-        handler.headers['Cookie'] = 'opaque-local-session-fixture'
         handler.headers['X-authentik-groups'] = 'homelab-owner'
-        with patch.object(web.AUTH, 'open') as auth:
-            response = auth.return_value.__enter__.return_value
-            response.status = 204; response.headers = {'X-authentik-groups':'viewer'}
-            self.assertEqual(RealAuthorization(handler), 403)
-            response.headers = {'X-authentik-groups':'homelab-owner'}
-            self.assertEqual(RealAuthorization(handler), 200)
-            request = auth.call_args.args[0]
-            self.assertEqual(request.full_url, web.ORIGIN + '/outpost.goauthentik.io/auth/nginx')
-            self.assertEqual(request.get_header('Cookie'), 'opaque-local-session-fixture')
-        with patch.object(web.AUTH, 'open', side_effect=OSError()):
+        handler.headers['Authorization'] = 'Bearer forged'
+        handler.headers['Cookie'] = 'authentik_proxy=forged'
+        oidc = OIDC('fixture', 's'*48)
+        with patch.object(web, 'OIDC_CLIENT', oidc):
+            self.assertEqual(RealAuthorization(handler), 401)
+        with patch.object(web, 'OIDC_CLIENT', None):
             self.assertEqual(RealAuthorization(handler), 503)
+
+    def test_only_opaque_server_side_session_authorizes(self):
+        import time
+        from email.message import Message
+        from queue_oidc import OIDC, SESSION_COOKIE
+        handler = Mock(); handler.headers = Message()
+        oidc = OIDC('fixture', 's'*48)
+        identity = 'x'*43
+        oidc.sessions[identity] = {'sub':'native-fixture', 'until':time.time()+30}
+        handler.headers['Cookie'] = SESSION_COOKIE+'='+identity
+        with patch.object(web, 'OIDC_CLIENT', oidc):
+            self.assertEqual(RealAuthorization(handler), 200)
+            oidc.logout(handler.headers)
+            self.assertEqual(RealAuthorization(handler), 401)
+
+class LogoutBrowserTests(unittest.TestCase):
+    def test_safe_logout_failure_messages_and_redirects(self):
+        program = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync(process.argv[1],'utf8');
+const logout=source.slice(source.indexOf("$('logout').onclick"));
+(async()=>{
+ for(const scenario of [200,401,403,503,'TimeoutError','TypeError']){
+  const status={},button={},redirects=[];
+  const context={$:id=>id==='logout'?button:status,
+    window:{location:{assign:path=>redirects.push(path)}},
+    AbortSignal:{timeout:()=>({})},fetch:async()=>{
+     if(typeof scenario==='string')throw Object.assign(new Error('PRIVATE_DIAGNOSTIC'),{name:scenario});
+     return {ok:scenario===200,status:scenario};
+    }};
+  vm.runInNewContext(logout,context);await button.onclick();
+  if(scenario===200||scenario===401)assert.deepStrictEqual(redirects,['/signed-out']);
+  else {
+   assert.deepStrictEqual(redirects,[]);
+   assert(!status.textContent.includes('PRIVATE_DIAGNOSTIC'));
+   if(typeof scenario==='number')assert(status.textContent.includes('HTTP '+scenario));
+   else assert(status.textContent.includes(scenario==='TimeoutError'?'timed out':'connection'));
+  }
+ }
+})().catch(e=>{console.error(e);process.exitCode=1});
+"""
+        subprocess.run(['node','-e',program,str(ROOT/'frontend/app.js')],check=True,timeout=10)
 
 if __name__ == '__main__':unittest.main()
