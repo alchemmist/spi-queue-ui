@@ -61,7 +61,8 @@ class EventWorkflowTests(unittest.TestCase):
                              else '={{ JSON.stringify($json) }}' )
             self.assertEqual(node['credentials'], trigger['credentials'])
             self.assertFalse(node.get('retryOnFail', False))
-        self.assertEqual(w['settings'], {'executionOrder': 'v1', 'timezone': 'Europe/Moscow',
+        self.assertEqual(w['settings'], {'errorWorkflow': 'iZn7biFh6321a1w8',
+                                        'executionOrder': 'v1', 'timezone': 'Europe/Moscow',
                                         'executionTimeout': 21600, 'saveExecutionProgress': True,
                                         'saveDataSuccessExecution': 'all',
                                         'saveDataErrorExecution': 'all',
