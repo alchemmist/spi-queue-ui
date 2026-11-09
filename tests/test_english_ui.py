@@ -13,15 +13,15 @@ class EnglishUITests(unittest.TestCase):
             language = None
             def handle_starttag(self, tag, attrs):
                 if tag == 'html': self.language = dict(attrs).get('lang')
-        html = (ROOT / 'app/index.html').read_text()
+        html = (ROOT / 'frontend/index.html').read_text()
         parsed = HTML(); parsed.feed(html)
         self.assertEqual(parsed.language, 'en')
-        for path in (ROOT / 'app').iterdir():
+        for path in (ROOT / 'frontend').iterdir():
             if path.suffix in ('.html', '.js', '.css', '.py'):
                 self.assertFalse(any('\u0400' <= c <= '\u04ff' for c in path.read_text()), path.name)
         self.assertIn('Queue controls', html)
         self.assertIn('Cancellation does not close the GitHub issue', html)
-        js = (ROOT / 'app/app.js').read_text()
+        js = (ROOT / 'frontend/app.js').read_text()
         self.assertIn("toLocaleString('en-GB'", js)
 
     def test_render_confirmation_and_errors_are_english_but_data_is_preserved(self):
@@ -55,6 +55,6 @@ ctx.fetch=async()=>({ok:false,redirected:false,status:401,headers:{get:()=> 'app
 (async()=>{try{await vm.runInContext("api('list',{})",ctx);assert.fail('must reject');}
 catch(error){assert.ok(error.message.startsWith('Your session has expired.'));}})().catch(error=>{console.error(error);process.exitCode=1;});
 '''
-        subprocess.run(['node', '-e', script, str(ROOT / 'app/app.js')], check=True, capture_output=True, timeout=10)
+        subprocess.run(['node', '-e', script, str(ROOT / 'frontend/app.js')], check=True, capture_output=True, timeout=10)
 
 if __name__ == '__main__': unittest.main()

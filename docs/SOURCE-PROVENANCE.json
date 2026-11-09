@@ -1,0 +1,28 @@
+{
+  "homelab_source_commit": "996d32719a59dd2281a417cd38f3cb355c1b7b15",
+  "backend_sha256": {
+    "card_correlation.py": "10ab30eae9fe3ff4541499cb5f3ef89825e871a48731fabfff3c46274867018a",
+    "core.py": "34d20cc1e1db359f5a86a643a7fc154b4c84d0493a50991a493e785c7451d757",
+    "dispatcher.py": "4828bb211865aedcbbacb3f947238d9feb5b2854d502c47af12d905052301ffe",
+    "durable_wait.py": "d2d97640f191ef033bb8a4e0b748c4e0f0e9b60bb74162a0b81d341de3caa8b9",
+    "evidence_bundle.py": "108cc174d56abf60c6f617ab7d8ed96bddf025789a2acaca2681747168180925",
+    "github_broker.py": "559d77a262d509671c5e32dbc1d887ef32b99ca6214b02c993ac3ab270dd6c6e",
+    "grafana_links.py": "8f538919ed1e19cfbea84cf60e41d3b3b470ef7f3451553c36d0a80626cf4e0c",
+    "integrations.py": "40aafdb9617a3a2bd98c9adb73b80800ee8d12dfc0ba276a896a362f39fd30d0",
+    "local_token_counter.py": "9f49f1fe4f0fc0943a315ffaa2ac3bee63791488c20c9ceb0e73ae8b50ac2854",
+    "provenance.py": "ff6a48bbb559f9a82fec50a8bc430a8cfc97bc24cb690608e2badc3893a6bef8",
+    "queue_admin.py": "acdb9e06596f7c6688d978f72d012d033a971026b2180cf48446cb468993f790",
+    "s3_evidence.py": "e61b335cd729d51f205e6fb123add9180d539d5757262c577c3669a439b05ca4",
+    "service.py": "afd81033940bdbbd3471f41b45202c0dd803a813a78770e52c83b29ecebb169d",
+    "storage_runtime.py": "bdd97cd9c5fef7fd7618ea63322d36a35da760532c319b9d1dee52de7526bf0d",
+    "telegram_delivery.py": "846c45970e51f55c771a7b567c84f9e2f0f7568d99d7f5bfbb1dd32e8f623388",
+    "telegram_links.py": "15db1593ef455029e5cde93a4b758338138224fc702c1639d6eb461f55443a67",
+    "telemetry.py": "d6879667231f90f720548740912d88467eae5f8e4d593955190560687e4a3ac2"
+  },
+  "historical_regression_fixture": {
+    "commit": "72ebc5e68636d4c08218b0b20a324faf9553484a",
+    "sha256": "2e4813ed9fd5e0aa6dbac6b510efd847afb10d44374a8985685dcd979e9695ba"
+  },
+  "production_data_exported": false,
+  "homelab_git_history_imported": false
+}

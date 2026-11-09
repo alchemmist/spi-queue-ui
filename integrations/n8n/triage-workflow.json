@@ -1,0 +1,417 @@
+{
+  "name": "SPI Incident Triage",
+  "nodes": [
+    {
+      "name": "Dispatch Triage Job",
+      "type": "CUSTOM.socratSpiDispatchWebhook",
+      "typeVersion": 1,
+      "parameters": {
+        "path": "spi-incident-triage-dispatch"
+      },
+      "position": [
+        0,
+        0
+      ],
+      "id": "9c393df1-a66f-41bf-acaf-b2b66f31a393",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      },
+      "webhookId": "9c393df1-a66f-41bf-acaf-b2b66f31a393"
+    },
+    {
+      "name": "Claim Triage Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://spi-triage.automation.svc:8080/claim",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({execution_id: String($execution.id), workflow_revision: 'durable-v1'}) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-SPI-Workflow-Contract",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      },
+      "id": "ace6035e-4fe4-4742-a2ac-e48d24fecf04"
+    },
+    {
+      "name": "Select Claimed Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "const stages = ['match','collect','analyze','publish'];\nreturn items.filter(item => {\n const x=item.json;\n if(x.contract===1 && x.status==='empty' && x.job_id==='') return false;\n if(x.contract!==1 || !['ready','deferred','complete'].includes(x.status) || !/^[a-f0-9]{64}$/.test(x.job_id||'') || !/^[1-9][0-9]{0,31}$/.test(x.execution_id||'') || x.execution_id!==String($execution.id) || x.workflow_revision!=='durable-v1' || !/^[a-f0-9]{64}$/.test(x.fence||'') || !stages.includes(x.stage) || !Number.isFinite(x.deadline) || !Number.isFinite(x.due_at)) throw new Error('INVALID_SPI_WAIT_ENVELOPE');\n if(x.status==='deferred' && !['LLM_ADMISSION_DEFERRED','WORKER_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT'].includes(x.code)) throw new Error('INVALID_SPI_WAIT_CODE');\n if(x.status==='deferred' && (x.due_at*1000<=Date.now() || x.due_at>=x.deadline)) throw new Error('INVALID_SPI_WAIT_DUE');\n if(x.deadline*1000<=Date.now()) throw new Error('SPI_EXECUTION_DEADLINE');\n if(x.status==='complete' && (x.stage!=='publish' || !['complete','dry_run'].includes(x.outcome))) throw new Error('INVALID_SPI_TERMINAL_OUTCOME');\n return true;\n});"
+      },
+      "position": [
+        640,
+        0
+      ],
+      "id": "e7d658f0-698a-4a49-b66c-2b5c3336b52c"
+    },
+    {
+      "name": "Match Open SPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://spi-triage.automation.svc:8080/match",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 1920000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-SPI-Workflow-Contract",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      },
+      "id": "1f4819ea-709f-4a56-8ffe-22f6396ac78b"
+    },
+    {
+      "name": "Collect Evidence",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1280,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://spi-triage.automation.svc:8080/collect",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 1920000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-SPI-Workflow-Contract",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      },
+      "id": "0f300417-871e-4478-8af5-c067e051209b"
+    },
+    {
+      "name": "Analyze Incident",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://spi-triage.automation.svc:8080/analyze",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 1920000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-SPI-Workflow-Contract",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      },
+      "id": "10869f3b-8aa7-4ba2-b185-3a35c921cabf"
+    },
+    {
+      "name": "Publish SPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://spi-triage.automation.svc:8080/publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 1920000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-SPI-Workflow-Contract",
+              "value": "1"
+            }
+          ]
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      },
+      "id": "656d32a2-5cdd-475b-b9a4-53d6f289832b"
+    },
+    {
+      "name": "Route Stage Outcome",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.status === 'deferred' ? 0 : 1 }}"
+      },
+      "position": [
+        960,
+        400
+      ],
+      "id": "5c61e048-7e0f-59e1-9004-34610a57e892"
+    },
+    {
+      "name": "Wait For Admission",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ new Date(Math.max($json.due_at * 1000, Date.now() + 66000)).toISOString() }}"
+      },
+      "position": [
+        1280,
+        400
+      ],
+      "id": "7062e767-64b8-55a6-8a2b-d078cace6b21"
+    },
+    {
+      "name": "Resume Pinned Stage",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 5,
+        "output": "={{ $json.status === 'complete' ? 4 : ['match','collect','analyze','publish'].indexOf($json.stage) }}"
+      },
+      "position": [
+        1600,
+        400
+      ],
+      "id": "c0eab4cf-bf71-5873-9b38-32fc2c21caeb"
+    }
+  ],
+  "connections": {
+    "Dispatch Triage Job": {
+      "main": [
+        [
+          {
+            "node": "Claim Triage Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Triage Job": {
+      "main": [
+        [
+          {
+            "node": "Select Claimed Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Claimed Job": {
+      "main": [
+        [
+          {
+            "node": "Route Stage Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Stage Outcome": {
+      "main": [
+        [
+          {
+            "node": "Wait For Admission",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resume Pinned Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For Admission": {
+      "main": [
+        [
+          {
+            "node": "Resume Pinned Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume Pinned Stage": {
+      "main": [
+        [
+          {
+            "node": "Match Open SPI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Collect Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Analyze Incident",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Publish SPI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Match Open SPI": {
+      "main": [
+        [
+          {
+            "node": "Select Claimed Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Evidence": {
+      "main": [
+        [
+          {
+            "node": "Select Claimed Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Incident": {
+      "main": [
+        [
+          {
+            "node": "Select Claimed Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish SPI": {
+      "main": [
+        [
+          {
+            "node": "Select Claimed Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow",
+    "executionTimeout": 21600,
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveManualExecutions": true
+  }
+}

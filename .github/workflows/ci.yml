@@ -1,4 +1,4 @@
-name: CI
+name: SPI service CI and release
 on:
   pull_request:
   push:
@@ -9,23 +9,32 @@ permissions:
 jobs:
   test-and-build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: HTTP and authorization regressions (local fixtures only)
-        run: python3 -m unittest discover -s tests -v
+      - name: Backend and frontend regressions (local fixtures only)
+        run: python3 scripts/test_all.py
       - name: JavaScript syntax
-        run: node --check app/app.js
-      - name: Build standalone image (no registry credentials, no deployment)
-        run: docker build --tag spi-queue-ui:test .
-  publish:
+        run: node --check frontend/app.js
+      - name: Build native test image
+        run: docker build --platform linux/amd64 --target test --tag spi-triage:test .
+      - name: Offline native and integration regressions in production resource budget
+        run: >-
+          docker run --rm --network none --read-only --cpus 1
+          --memory 384m --memory-swap 384m --pids-limit 256
+          --tmpfs /tmp:rw,nosuid,nodev,size=64m
+          -e SPI_REQUIRE_NATIVE_TESTS=true spi-triage:test
+      - name: Build complete immutable release image (no publication)
+        run: docker build --platform linux/amd64 --target release --tag spi-triage:checked .
+  publish-and-deploy:
     concurrency:
-      group: spi-queue-ui-release
+      group: spi-triage-release
       cancel-in-progress: false
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.PUBLISH_ENABLED == 'true'
     needs: test-and-build
+    environment: spi-triage-production
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -40,18 +49,18 @@ jobs:
           registry: harbor.socrat.alchemmist.xyz
           username: ${{ secrets.HARBOR_USERNAME }}
           password: ${{ secrets.HARBOR_PASSWORD }}
-      - name: Build immutable image
+      - name: Build and push full-service image
         id: image
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: release
+          platforms: linux/amd64
           push: true
-          tags: harbor.socrat.alchemmist.xyz/homelab/spi-queue-ui:${{ github.sha }}
-      - name: Record image digest
-        run: echo '${{ steps.image.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+          tags: harbor.socrat.alchemmist.xyz/homelab/spi-triage:${{ github.sha }}
       - name: Deploy to Socrat
         uses: alchemmist/deploy-to-socrat@v1
         with:
-          app: spi-queue-ui
+          app: spi-triage
           token: ${{ secrets.HOMELAB_DEPLOY_KEY }}
           image_version: ${{ steps.image.outputs.digest }}

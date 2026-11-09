@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location('queue_web', ROOT / 'app/queue_web.py')
+spec = importlib.util.spec_from_file_location('queue_web', ROOT / 'frontend/queue_web.py')
 web = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(web)
 RealConnection = http.client.HTTPConnection
@@ -42,7 +42,7 @@ class QueueWebTests(unittest.TestCase):
         self.assertIn("script-src 'self'", headers['Content-Security-Policy'])
         self.assertNotIn("'unsafe-inline'", headers['Content-Security-Policy'])
         self.assertNotIn(b'https://', body)
-        js = (ROOT / 'app/app.js').read_text()
+        js = (ROOT / 'frontend/app.js').read_text()
         self.assertNotIn('innerHTML', js)
         self.assertIn('textContent', js)
         self.assertIn('expected_updated', js)

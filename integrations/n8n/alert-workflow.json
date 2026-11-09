@@ -1,0 +1,169 @@
+{
+  "name": "Socrat Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "socrat-alerts",
+        "requireAuth": true
+      },
+      "id": "c0ffee00-0001-4000-8000-000000000001",
+      "name": "Alertmanager Webhook",
+      "type": "CUSTOM.socratAlertWebhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "socrat-alerts",
+      "credentials": {
+        "socratAlertIngress": {
+          "id": "ALERT_INGRESS_CREDENTIAL_ID",
+          "name": "Socrat alert ingress"
+        },
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json;\nconst payload = raw.body && (Array.isArray(raw.body.alerts) || raw.body.status) ? raw.body : raw;\nconst alerts = Array.isArray(payload.alerts) ? payload.alerts : [];\nif (!alerts.length) return [];\n\nreturn alerts.map(function (alert, index) {\n  return {\n    json: {\n      ownerChatId: 891074228,\n      source: payload.externalURL || 'socrat-alerts',\n      alert: {\n        status: alert.status || 'firing',\n        ...(raw.triageEvents && raw.triageEvents[index] ? {spi_episode: raw.triageEvents[index].episode} : {}),\n        fingerprint: alert.fingerprint || '',\n        startsAt: alert.startsAt,\n        endsAt: alert.endsAt,\n        generatorURL: alert.generatorURL || '',\n        labels: alert.labels || {},\n        annotations: alert.annotations || {},\n      },\n    },\n  };\n});\n"
+      },
+      "id": "c0ffee00-0002-4000-8000-000000000002",
+      "name": "One item per alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://socrat-bot.socrat-bot.svc:8080/v1/messages",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.ownerChatId, alert: $json.alert }) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "c0ffee00-0003-4000-8000-000000000003",
+      "name": "Post Telegram Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SOCRAT_BOT_CREDENTIAL_ID",
+          "name": "Socrat bot internal"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ce9363ac-bd94-4af0-a47f-01f2874eacee",
+      "name": "Prepare Telegram Receipt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        300
+      ],
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "jsCode": "return items.map((item,index)=>{const source=$('One item per alert').itemMatching(index).json;return {json:{version:1,source:source.source,alert:source.alert,receipt:item.json},pairedItem:{item:index}};});"
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://spi-triage.automation.svc:8080/telegram-receipt",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "id": "c0ffee00-0004-4000-8000-000000000004",
+      "name": "Record Telegram Receipt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SPI_WORKER_CREDENTIAL_ID",
+          "name": "SPI worker internal"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Alertmanager Webhook": {
+      "main": [
+        [
+          {
+            "node": "One item per alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per alert": {
+      "main": [
+        [
+          {
+            "node": "Post Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Prepare Telegram Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Telegram Receipt": {
+      "main": [
+        [
+          {
+            "node": "Record Telegram Receipt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Moscow",
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false
+  },
+  "pinData": {}
+}

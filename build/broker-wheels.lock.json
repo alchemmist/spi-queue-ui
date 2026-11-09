@@ -1,0 +1,30 @@
+[
+  {
+    "package": "PyJWT",
+    "version": "2.10.1",
+    "filename": "PyJWT-2.10.1-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/61/ad/689f02752eeec26aed679477e80e632ef1b682313be70793d798c1d5fc8f/PyJWT-2.10.1-py3-none-any.whl",
+    "sha256": "dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb"
+  },
+  {
+    "package": "cryptography",
+    "version": "46.0.3",
+    "filename": "cryptography-46.0.3-cp311-abi3-musllinux_1_2_x86_64.whl",
+    "url": "https://files.pythonhosted.org/packages/fa/b1/ebacbfe53317d55cf33165bda24c86523497a6881f339f9aae5c2e13e57b/cryptography-46.0.3-cp311-abi3-musllinux_1_2_x86_64.whl",
+    "sha256": "a04bee9ab6a4da801eb9b51f1b708a1b5b5c9eb48c03f74198464c66f0d344ac"
+  },
+  {
+    "package": "cffi",
+    "version": "2.0.0",
+    "filename": "cffi-2.0.0-cp313-cp313-musllinux_1_2_x86_64.whl",
+    "url": "https://files.pythonhosted.org/packages/36/54/0362578dd2c9e557a28ac77698ed67323ed5b9775ca9d3fe73fe191bb5d8/cffi-2.0.0-cp313-cp313-musllinux_1_2_x86_64.whl",
+    "sha256": "6d50360be4546678fc1b79ffe7a66265e28667840010348dd69a314145807a1b"
+  },
+  {
+    "package": "pycparser",
+    "version": "2.23",
+    "filename": "pycparser-2.23-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl",
+    "sha256": "e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934"
+  }
+]

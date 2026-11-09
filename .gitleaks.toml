@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact public SHA256 provenance/tokenizer digests; not credentials"
+regexTarget = "secret"
+regexes = ['''^(06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523|5f7aa0d810000c4a0940b35c8f16e56c3439260fccc13a321826ebc3ccf2501f|9f49f1fe4f0fc0943a315ffaa2ac3bee63791488c20c9ceb0e73ae8b50ac2854)$''']
