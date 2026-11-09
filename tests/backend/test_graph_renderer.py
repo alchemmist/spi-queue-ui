@@ -120,10 +120,10 @@ class RendererTests(unittest.TestCase):
         server = Server(('127.0.0.1', 0), self.renderer(),
                         {'telegram': 'test-tg', 'spi': 'test-spi'})
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        def post(auth, raw=None):
+        def post(auth, raw=None, path="/v1/render"):
             connection = http.client.HTTPConnection(*server.server_address, timeout=3)
             try:
-                connection.request('POST', '/v1/render', body=raw or canonical(self.request),
+                connection.request('POST', path, body=raw or canonical(self.request),
                                    headers={'Authorization': auth, 'Content-Type': 'application/json'})
                 r = connection.getresponse()
                 return r.status, dict(r.getheaders()), r.read()
@@ -137,6 +137,17 @@ class RendererTests(unittest.TestCase):
             self.assertEqual(body, self.raw)
             self.assertEqual(headers['X-Content-SHA256'], hashlib.sha256(body).hexdigest())
             self.assertEqual(headers['Cache-Control'], 'no-store')
+            primary={'annotation':canonical({'version':1,'graphs':[graph(),graph(id='context',panel_id=13)]}),
+                     'labels':{'service':'api'},'starts_at':'2026-11-08T12:00:00Z',
+                     'observed_at':'2026-11-08T12:02:00Z','ends_at':None,'status':'firing'}
+            status,headers,body=post('Bearer test-tg',canonical(primary),'/v1/primary')
+            self.assertEqual(status,200);self.assertEqual(body,self.raw)
+            self.assertEqual(headers['X-Graph-Mode'],'onset')
+            self.assertEqual(headers['X-Render-Digest'],self.request['digest'])
+            self.assertEqual(len(self.calls),1)  # second graph isn't the primary
+            self.assertEqual(post('Bearer test-tg',canonical({**primary,'labels':{}}),'/v1/primary')[0],422)
+            self.assertEqual(post('Bearer test-tg',canonical({**primary,'url':'https://invalid.example'}),'/v1/primary')[0],422)
+
         finally:
             server.shutdown(); server.server_close(); thread.join(3)
 

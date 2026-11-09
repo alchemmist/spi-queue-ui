@@ -121,3 +121,35 @@ actual authenticated download and natural Telegram acceptance are still separate
 gates. Rule-scoped diagnostic panels can contain multiple series; their legends
 and descriptions explicitly disclose that scope rather than claiming an exact
 per-instance match.
+
+##2026-11-09 release receipt: source shipped, activation blocked
+
+- Application commit `45af122493392d303b5f2ad978004fd668fb2a3f` and bot commit
+  `dfff15e37a005b3a770b2882f762079d4fa067a6` are on their respective main branches.
+- Homelab `a1a3fa3` reconciled successfully. All189 live Prometheus alert rules
+  have `spi_graphs`; all28 dashboard ConfigMaps exist. The7 Grafana-managed rule
+  files are mapped in source but their live annotations have **not** been updated.
+- The deployed independent `identity/rustfs-gateway` already supports v3,
+  `stored_bytes` and PNG. Runtime source SHA256:
+  `2896e7224d662cd742ce40717c241868eaa3f65e7076582d8db9b050d0fe4a64`.
+  No contract snapshot was substituted for deployed Reader source.
+- A loopback cross-repository check exercised the real bot capture client, real
+  `/v1/primary` handler, fake Grafana transport and durable SQLite PNG snapshot.
+  Exact PNG bytes and reuse passed without Telegram, model or S3 calls.
+- [SPI CI](https://github.com/alchemmist/spi-triage/actions/runs/42610770650)
+  passed tests/build, then failed Docker login to canonical Harbor with
+  `net/http: TLS handshake timeout` at the token endpoint. No image was published.
+- [Bot CI](https://github.com/alchemmist/socrat-bot/actions/runs/42610352796)
+  passed tests; Docker login failed on the initial run and one bounded failed-job
+  retry with the same TLS symptom. Bot code/migration have not been deployed.
+- SPI publication is held false again. No DNS, routing, TLS-verification or
+  authentication workaround was used. Gateway/consumer flags remain disabled.
+  No historical work was replayed and no real test notification was sent.
+
+Once canonical hosted-runner Harbor authentication works, publish pinned images
+through the existing CI, prepare the dedicated machine identities/mounts and
+remote renderer, verify actual hostNetwork/CNI sources and protected downloads,
+update the live n8n validator before worker activation, apply the seven managed
+annotation updates in place, and use the documented natural drain before any
+backend replacement. Then observe real one-message Telegram delivery. These are
+still release/acceptance gates, not completed production functionality.

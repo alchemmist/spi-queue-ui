@@ -99,8 +99,13 @@ The owner explicitly said backups are not a prerequisite for this extraction.
 ### Migration state and activation
 
 The source extraction is complete, but image/deployment acceptance is separate.
-`PUBLISH_ENABLED=false` currently holds publication because hosted-runner Harbor
-TLS/DNS checks failed. Existing private access to the cluster also times out.
+`PUBLISH_ENABLED=false` holds publication after the graph release attempt:
+hosted-runner Docker login still times out during the Harbor TLS/token handshake.
+Private SSH/Kubernetes access now works and all four nodes were Ready. The graph
+image was approved for publication **to standby only** after proving all20 Helm
+resources identical with `bundleEnabled=false`; authentication failed before
+publication, and the publication flag was restored to false. See
+`docs/alert-graphs.md` for the receipt. No backend activation occurred.
 Do not claim a live migration from source/CI success alone.
 
 Homelab `bundleEnabled=false` is a transitional compatibility gate: its render
