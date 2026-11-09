@@ -297,6 +297,8 @@ class NativeHTTPFlowTests(unittest.TestCase):
                 self.assertNotIn(b"http-fixture", content[3])
                 self.assertEqual(request("/logout", session, "POST")[0], 200)
                 self.assertEqual(request("/queue/", session)[0], 302)
+                self.assertEqual(request("/logout", session, "POST")[0], 401)
+                self.assertEqual(request("/queue/", session)[0], 302)
             finally:
                 server.shutdown()
                 server.server_close()

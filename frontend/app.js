@@ -95,6 +95,7 @@ $('logout').onclick = async () => {
     const response = await fetch('/logout', {method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json', 'X-SPI-Queue':'1'}, body:'{}',
       signal:AbortSignal.timeout(10000)});
+    // 401 means no valid local session exists: logout is already complete.
     if (response.ok || response.status === 401) window.location.assign('/signed-out');
     else $('status').textContent = 'Unable to sign out. Please try again.';
   } catch (_) { $('status').textContent = 'Unable to sign out. Please try again.'; }
