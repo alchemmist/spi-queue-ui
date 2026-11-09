@@ -98,15 +98,18 @@ The owner explicitly said backups are not a prerequisite for this extraction.
 
 ### Migration state and activation
 
-The source extraction is complete, but image/deployment acceptance is separate.
-`PUBLISH_ENABLED=false` holds publication after the graph release attempt:
-hosted-runner Docker login still times out during the Harbor TLS/token handshake.
-Private SSH/Kubernetes access now works and all four nodes were Ready. The graph
-image was approved for publication **to standby only** after proving all20 Helm
-resources identical with `bundleEnabled=false`; authentication failed before
-publication, and the publication flag was restored to false. See
-`docs/alert-graphs.md` for the receipt. No backend activation occurred.
-Do not claim a live migration from source/CI success alone.
+Full-service image activation completed on2026-11-09 after natural drain and
+verified idle checkpoint. `PUBLISH_ENABLED=true`; canonical Harbor publication
+succeeded using existing credentials and bounded isolated BuildKit TLS
+compatibility. Homelab `bundleEnabled=true` uses source `b70462d` at immutable
+digest `sha256:eb830c98ccd6d19ef8535fcb5be003d783cb4aeb98d18fe64e66c1f51a37f64a`.
+Worker/frontend/broker no longer mount legacy source ConfigMaps. Graph gateway
+and both consumers are enabled; native private2-PNG storage/Reader integrity
+and natural Telegram photo receipts passed. Original workflow is active again
+with additive `GRAPH_CAPTURE_DEFERRED`, historical state retained. See
+`docs/alert-graphs.md` for proof and the explicit positive browser-SSO test limit.
+
+The following compatibility instructions remain relevant only for rollback:
 
 Homelab `bundleEnabled=false` is a transitional compatibility gate: its render
 must match every existing worker/frontend/broker/PVC/RBAC resource. Existing

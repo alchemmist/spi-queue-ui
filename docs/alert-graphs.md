@@ -153,3 +153,76 @@ update the live n8n validator before worker activation, apply the seven managed
 annotation updates in place, and use the documented natural drain before any
 backend replacement. Then observe real one-message Telegram delivery. These are
 still release/acceptance gates, not completed production functionality.
+
+## Production activation receipt — 2026-11-09 14:01 UTC
+
+This supersedes the earlier blocked/disabled release receipt below/above; it is
+not a claim that historical queue backlog or unrelated incidents were repaired.
+
+- Current live coverage: **193/193 Prometheus + 7/7 Grafana-managed rules** have
+  ordered `spi_graphs`; source inventory200 rules/188 mappings/29 dashboards.
+  Managed annotations were changed in place with condition/data/routing/labels,
+  pause state and other annotations verified unchanged.
+- Canonical Harbor CI works again. Existing robot grant `pull,push` is verified
+  using Python HTTPS; an ephemeral private Docker config and an isolated BuildKit
+  with `GODEBUG=tlsmlkem=0` avoid the observed hosted-runner Go TLS key-share
+  compatibility failure. Certificate verification, DNS, routes, robot permissions
+  and cluster pull identity are unchanged. The server TLSOption experiment was
+  fully reverted, including its leftover custom resource. No new release token
+  or user action is required.
+- SPI publication run42622862630 succeeded. Full-service worker/frontend/broker
+  and gateway use immutable SPI digest
+  `sha256:eb830c98ccd6d19ef8535fcb5be003d783cb4aeb98d18fe64e66c1f51a37f64a`
+  (source `b70462d`). Bot run42629684670 passed **207 PostgreSQL tests/17
+  backend-specific skips** and deployed source `6e7f6d7`, digest
+  `sha256:2bec0997b93f0c91bd0dfc561886a1e497058c4b39c5e37ae7842637c99a8635`.
+- Renderer v5.12.10 uses actual verified Docker Hub digest
+  `sha256:a7970b826f6e477461e02bf5463d92634e9ad27d525e4e50296978a2e592d2d7`;
+  the chart's `image.sha` field requires raw64 characters, not a `sha256:` prefix.
+  Renderer request logging is silenced and log level is error: never retain its
+  ephemeral Grafana renderKey in normal URL access logs.
+- Scoped native Grafana Viewer account `socrat-alert-graphs`, authenticated
+  renderer, separate SPI/Telegram keys and private pull Secrets are deployed.
+  Credentials are not in Git. Viewer token expires **2027-02-07T13:00:52Z**:
+  renew it before that date using the native service-account token API, update
+  only the existing gateway's `grafana` key and roll the isolated gateway through
+  normal GitOps; no human SSO/CI identity or worker migration needs changing.
+- Observed hostNetwork admission is the exact post-DNAT flannel source
+  `10.42.0.0/32`, not the socket's pre-DNAT node IP. Other gateway ingress is
+  namespace/pod-selected SPI only; no general CIDR admission was added.
+- The original n8n workflow `J9akzlydrf9XZiID` was paused in place; current
+  execution14787 finished naturally. Its validator gained only
+  `GRAPH_CAPTURE_DEFERRED`. After zero logical owners/processing/active paid
+  reservations, an idle off-cluster SQLite checkpoint was verified:
+  236974080bytes, SHA256
+  `c719d28370ab1e4c7ee8b6ea3f2840aa3992a23443b07fac226f75159438995e`.
+  All766 prior job IDs/creation times and491 terminal state/stage/result/intent
+  hashes survived exact-image activation. Same PVCs/state/credentials/leases,
+  deadlines/budgets and historical Jobs were retained; no reset/replay occurred.
+- Homelab activation `1321b97` set `bundleEnabled=true` and SPI graphs enabled.
+  All three runtime roles no longer mount frozen code ConfigMaps. Only the three
+  unused old code ConfigMaps were retired after proving no active pod mounts,
+  saving preimages and applying UID/resourceVersion delete preconditions. No
+  broad prune or Job/PVC/Secret/RBAC deletion was performed. Frozen Git snapshots
+  remain rollback-only, never a second source for app development.
+- The same workflow is active again; ordinary `dispatch_sent` and
+  `publication_ok` resumed naturally. The native broker's next scheduled Job
+  completed with the full-service image; no synthetic broker Job was launched.
+- Real gateway PNG1200×600 passed strict validation and exact SHA256. Actual
+  bot5-second capture + durable PostgreSQL snapshot completed in4.443s. Native
+  Telegram receipts show **9 photo cards** with message IDs and persisted graph
+  references from natural alerts: no real test notification was sent. Complete
+  captions/inline buttons and photo edits share the native delivery path; old
+  text cards remain text and conservative UTF-16 overflow preserves full text.
+- A separately labelled synthetic storage-only check (no SPI job, model call,
+  GitHub publication or notification) captured **both declared panels**, stored
+  all4 immutable v3 objects using the actual SPI writer role, then read both
+  PNGs through the deployed Reader's read-only IAM/manifest/hash-validation
+  domain path. Model context was byte-equivalent before/after graph attachment.
+  GitHub markdown uses protected Reader links; anonymous public PNG access401.
+  This is **not** an owner-browser SSO login test: that positive browser check
+  could not be repeated because the shared browser profile was already in use.
+  Existing Authentik group/cookie authorization was not changed or bypassed.
+- Harbor, Grafana, SPI and bot are **Synced/Healthy**; all4 nodes Ready. Gateway
+  and both consumer flags are enabled in deployment overrides (chart defaults
+  remain off). Private backup/credential/acceptance artifacts remain outside Git.
