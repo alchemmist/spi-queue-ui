@@ -117,4 +117,32 @@ class QueueAuthorizationTests(unittest.TestCase):
             oidc.logout(handler.headers)
             self.assertEqual(RealAuthorization(handler), 401)
 
+class LogoutBrowserTests(unittest.TestCase):
+    def test_safe_logout_failure_messages_and_redirects(self):
+        program = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync(process.argv[1],'utf8');
+const logout=source.slice(source.indexOf("$('logout').onclick"));
+(async()=>{
+ for(const scenario of [200,401,403,503,'TimeoutError','TypeError']){
+  const status={},button={},redirects=[];
+  const context={$:id=>id==='logout'?button:status,
+    window:{location:{assign:path=>redirects.push(path)}},
+    AbortSignal:{timeout:()=>({})},fetch:async()=>{
+     if(typeof scenario==='string')throw Object.assign(new Error('PRIVATE_DIAGNOSTIC'),{name:scenario});
+     return {ok:scenario===200,status:scenario};
+    }};
+  vm.runInNewContext(logout,context);await button.onclick();
+  if(scenario===200||scenario===401)assert.deepStrictEqual(redirects,['/signed-out']);
+  else {
+   assert.deepStrictEqual(redirects,[]);
+   assert(!status.textContent.includes('PRIVATE_DIAGNOSTIC'));
+   if(typeof scenario==='number')assert(status.textContent.includes('HTTP '+scenario));
+   else assert(status.textContent.includes(scenario==='TimeoutError'?'timed out':'connection'));
+  }
+ }
+})().catch(e=>{console.error(e);process.exitCode=1});
+"""
+        subprocess.run(['node','-e',program,str(ROOT/'frontend/app.js')],check=True,timeout=10)
+
 if __name__ == '__main__':unittest.main()
