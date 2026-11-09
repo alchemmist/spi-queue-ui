@@ -89,3 +89,13 @@ $('prev').onclick = () => { if (busy) return; offset = Math.max(0, offset - limi
 $('next').onclick = () => { if (busy) return; offset += limit; refresh(); };
 setInterval(() => { if ($('auto').checked && !document.hidden) refresh(); }, 15000);
 refresh();
+
+$('logout').onclick = async () => {
+  try {
+    const response = await fetch('/logout', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json', 'X-SPI-Queue':'1'}, body:'{}',
+      signal:AbortSignal.timeout(10000)});
+    if (response.ok || response.status === 401) window.location.assign('/signed-out');
+    else $('status').textContent = 'Unable to sign out. Please try again.';
+  } catch (_) { $('status').textContent = 'Unable to sign out. Please try again.'; }
+};

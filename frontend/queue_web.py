@@ -1,6 +1,6 @@
-"""Private queue BFF; verified SSO cookie + Traefik-only ingress.
-Cookies go only to the fixed TLS auth endpoint, never to the queue backend.
-Only two fixed operator routes; no worker token or caller identity is trusted.
+"""Native OIDC operator BFF, isolated from worker machine credentials.
+Only verified opaque server sessions authorize; caller identity headers are ignored.
+Only two fixed backend routes; no cookie, OIDC token or worker token forwarding.
 """
 import http.client
 import http.server
@@ -8,21 +8,16 @@ import json
 from pathlib import Path
 import socket
 import threading
-import urllib.request
-import urllib.error
 import urllib.parse
 
-ORIGIN = 'https://rustfs.socrat.alchemmist.xyz'
+from queue_oidc import OIDC, ORIGIN, Rejected, Unavailable, STATE_COOKIE, cookie
+
+OIDC_CLIENT = None
 ASSETS = {'/queue/': ('index.html', 'text/html; charset=utf-8'),
           '/queue/app.js': ('app.js', 'text/javascript; charset=utf-8'),
           '/queue/style.css': ('style.css', 'text/css; charset=utf-8')}
 ROUTES = {'/queue/api/list': '/operator/queue/list', '/queue/api/cancel': '/operator/queue/cancel'}
 TOKEN = ''
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):return None
-
-AUTH = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
 def expire(sock):
     try:sock.shutdown(socket.SHUT_RDWR)
@@ -42,7 +37,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def send_error(self, code, message=None, explain=None):
         self.send(400, b'', 'text/plain')
 
-    def send(self, status, body, mime='application/json; charset=utf-8', location=None):
+    def send(self, status, body, mime='application/json; charset=utf-8', location=None, cookies=()):
         self.close_connection = True
         self.send_response(status)
         for k, v in {'Content-Type': mime, 'Content-Length': str(len(body)),
@@ -51,42 +46,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
                      'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"}.items():
             self.send_header(k, v)
         if location:self.send_header('Location', location)
+        for value in cookies:self.send_header('Set-Cookie', value)
         self.end_headers()
         try:self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):pass
 
     def valid_host(self):
-        return self.headers.get_all('Host', []) == ['rustfs.socrat.alchemmist.xyz']
+        return self.headers.get_all('Host', []) == ['spi.socrat.alchemmist.xyz']
 
     def authorization(self):
-        # Same trusted auth/nginx endpoint as the private evidence Reader.
-        # Never trust caller identity headers or forward cookies to the backend.
-        cookies = self.headers.get_all('Cookie', [])
-        if len(cookies) != 1 or not cookies[0] or len(cookies[0]) > 8192 or '\r' in cookies[0] or '\n' in cookies[0]:
-            return 401
-        request = urllib.request.Request(ORIGIN + '/outpost.goauthentik.io/auth/nginx', headers={
-            'Cookie':cookies[0], 'X-Original-URL':ORIGIN + '/queue/',
-            'X-Forwarded-Proto':'https', 'X-Forwarded-Host':'rustfs.socrat.alchemmist.xyz',
-            'X-Forwarded-Method':'GET'})
-        try:
-            with AUTH.open(request, timeout=5) as response:
-                if response.status not in (200, 204):return 503
-                groups = set(response.headers.get('X-authentik-groups', '').split('|'))
-                return 200 if groups & {'homelab-owner', 'homelab-platform-operator'} else 403
-        except (OSError, ValueError, urllib.error.URLError) as error:
-            if isinstance(error, urllib.error.HTTPError):
-                code = error.code; error.close()
-                return code if code in (401, 403) else 503
-            return 503
+        if OIDC_CLIENT is None:return 503
+        return 200 if OIDC_CLIENT.authorized(self.headers) else 401
 
     def do_GET(self):
         if not self.valid_host():return self.send(400, b'{}')
+        path = urllib.parse.urlsplit(self.path)
+        if path.path == '/oauth/callback':
+            if OIDC_CLIENT is None:return self.send(503, b'{"code":"AUTH_UNAVAILABLE"}')
+            try:
+                session = OIDC_CLIENT.finish(path.query, self.headers)
+                return self.send(303, b'', location='/queue/', cookies=(session, cookie(STATE_COOKIE)))
+            except Rejected:
+                return self.send(401, b'{"code":"OIDC_REJECTED"}', cookies=(cookie(STATE_COOKIE),))
+            except Unavailable:
+                return self.send(503, b'{"code":"AUTH_UNAVAILABLE"}', cookies=(cookie(STATE_COOKIE),))
+        if self.path == '/signed-out':
+            return self.send(200, b'<!doctype html><title>SPI signed out</title><p>Signed out of SPI. Your Authentik session is unchanged.</p><a href="/login">Sign in</a>', 'text/html; charset=utf-8')
+        if self.path == '/login':
+            if OIDC_CLIENT is None:return self.send(503, b'{"code":"AUTH_UNAVAILABLE"}')
+            try:
+                location, state = OIDC_CLIENT.begin()
+                return self.send(302, b'', location=location, cookies=(state,))
+            except (Rejected, Unavailable):
+                return self.send(503, b'{"code":"AUTH_UNAVAILABLE"}')
         auth = self.authorization()
         if auth != 200:
             if auth == 401:
-                return self.send(302, b'', location=ORIGIN + '/outpost.goauthentik.io/start?' + urllib.parse.urlencode({'rd':ORIGIN + '/queue/'}))
+                return self.send(302, b'', location='/login')
             return self.send(auth, b'{"code":"AUTH_UNAVAILABLE"}')
-        if self.path == '/queue':return self.send(308, b'', location='/queue/')
+        if self.path in ('/', '/queue'):return self.send(308, b'', location='/queue/')
         asset = ASSETS.get(self.path)
         if not asset:return self.send(404, b'{}')
         self.send(200, Path(__file__).with_name(asset[0]).read_bytes(), asset[1])
@@ -101,6 +99,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 or self.headers.get('X-SPI-Queue') != '1'
                 or self.headers.get('Sec-Fetch-Site', 'same-origin') != 'same-origin'):
             return self.send(403, b'{"code":"CSRF_REJECTED"}')
+        if self.path == '/logout':
+            return self.send(200, b'{}', cookies=(OIDC_CLIENT.logout(self.headers),))
         route = ROUTES.get(self.path)
         if not route:return self.send(404, b'{}')
         lengths = self.headers.get_all('Content-Length', [])
@@ -147,6 +147,7 @@ class Server(http.server.ThreadingHTTPServer):
     def handle_error(self, request, client_address):pass
 
 if __name__ == '__main__':
+    OIDC_CLIENT = OIDC.from_file()
     TOKEN = Path('/queue-control/token').read_text().strip()
     if len(TOKEN) < 32:raise RuntimeError('QUEUE_ADMIN_TOKEN_REQUIRED')
     Server(('0.0.0.0', 8080), Handler).serve_forever()

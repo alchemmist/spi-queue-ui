@@ -128,3 +128,13 @@ The mistakenly bootstrapped `spi-queue-ui` Application was empty/disabled; its
 source is retired, not adopted as a separate service. The former repository URL
 redirects to this renamed full-service repository; release secrets/history stay
 with the same GitHub repository identity.
+
+### Standalone queue frontend / native OIDC (prepared, not deployed)
+
+The queue is being moved off the RustFS hostname to
+`https://spi.socrat.alchemmist.xyz/queue/`, with native confidential Authentik
+OIDC in the BFF, not a proxy-auth facade. Source, native tests and the matching
+homelab deployment/identity configuration are prepared. Live activation still
+requires restored trusted operator access, runtime client Secret and protected
+naturally drained shared-image release. See [queue OIDC](docs/queue-oidc.md) for
+protocol, role/session limits and the honest runtime acceptance status.
