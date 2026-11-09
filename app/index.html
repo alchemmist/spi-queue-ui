@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SPI · Очередь</title>
+<title>SPI · Queue</title>
 <link rel="stylesheet" href="/queue/style.css">
 <script src="/queue/app.js" defer></script>
-<header><h1>SPI / Очередь</h1><a href="/">RustFS</a></header>
-<p>Задания backend, не история запусков n8n. Отмена убирает ожидающее задание из обработки, но сохраняет его историю.</p>
-<section aria-label="Сводка"><p id="counts">Загрузка…</p><p id="limits"></p></section>
-<nav aria-label="Управление списком">
-<label>Показать <select id="filter"><option value="pending">В работе и ожидающие</option><option value="processing">Активное / Wait</option><option value="queued">Новые</option><option value="retry">Повторная попытка</option><option value="dead">Остановленные (dead)</option><option value="complete">Завершённые</option><option value="cancelled">Отменённые</option><option value="dry_run">Dry run</option></select></label>
-<button id="refresh" type="button">Обновить</button>
-<label><input id="auto" type="checkbox" checked> Авто · 15 с</label>
+<header><h1>SPI / Queue</h1><a href="/">RustFS</a></header>
+<p>Backend jobs, not n8n execution history. Cancelling removes a pending job from processing while preserving its history.</p>
+<section aria-label="Queue summary"><p id="counts">Loading…</p><p id="limits"></p></section>
+<nav aria-label="Queue controls">
+<label>Show <select id="filter"><option value="pending">Active and pending</option><option value="processing">Active / Wait</option><option value="queued">Queued</option><option value="retry">Waiting to retry</option><option value="dead">Stopped (dead)</option><option value="complete">Completed</option><option value="cancelled">Cancelled</option><option value="dry_run">Dry run</option></select></label>
+<button id="refresh" type="button">Refresh</button>
+<label><input id="auto" type="checkbox" checked> Auto · 15 s</label>
 </nav>
 <p id="status" role="status" aria-live="polite"></p>
-<div class="table"><table><thead><tr><th>Алерт / задание</th><th>Состояние / этап</th><th>Время</th><th>Прогресс / история</th><th>Действие</th></tr></thead><tbody id="items"></tbody></table></div>
-<footer><button id="prev" type="button">← Назад</button><span id="page"></span><button id="next" type="button">Далее →</button></footer>
-<p class="note">Активные задания, включая Wait, отменять нельзя. Dead не подбираются автоматически. «Последняя ошибка» может относиться к предыдущей попытке, а не к текущему выполнению. Отмена не закрывает GitHub issue и не удаляет evidence.</p>
+<div class="table"><table><thead><tr><th>Alert / job</th><th>State / stage</th><th>Timing</th><th>Progress / history</th><th>Action</th></tr></thead><tbody id="items"></tbody></table></div>
+<footer><button id="prev" type="button">← Previous</button><span id="page"></span><button id="next" type="button">Next →</button></footer>
+<p class="note">Active jobs, including Wait, cannot be cancelled. Dead jobs are not retried automatically. The last error may belong to a previous attempt, not the current execution. Cancellation does not close the GitHub issue or delete evidence.</p>
 </html>
