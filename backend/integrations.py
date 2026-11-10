@@ -454,6 +454,10 @@ class Model:
             checkpoint()
             candidates.extend(x for x in batch if x['number']==result['issue_number'])
             pending=pending[len(batch):]
+            if (pending or len(candidates)>1) and on_progress and getattr(OWNER_CONTEXT,'binding',None):
+                # One checkpointed paid batch per durable request. Never start a
+                # fresh call with the scraps of a previous batch's stage budget.
+                raise Failure('MATCH_PROGRESS_DEFERRED',retry_after=1)
         # Pairwise bounded reduction reviews every batch nominee. Persist each
         # comparison, so a rate deferral never repeats completed final work.
         comparisons=[]
@@ -483,6 +487,8 @@ class Model:
             selection={'nominees':digest(candidates),'comparisons':list(comparisons),
                        'remaining':[x['number'] for x in finalists],'decision':result}
             checkpoint()
+            if len(finalists)>1 and on_progress and getattr(OWNER_CONTEXT,'binding',None):
+                raise Failure('MATCH_PROGRESS_DEFERRED',retry_after=1)
         if finalists and result['issue_number']!=finalists[0]['number']:
             # A previous pair rejected both; the remaining nominee is not an
             # arbitrary shortcut: its own completed batch review selected it.

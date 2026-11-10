@@ -89,6 +89,83 @@ class ReadWaitTests(IntegrationTests):
         with self.store.db() as c:self.assertEqual(c.execute('select count(*) from job_failure_budget').fetchone()[0],0)
 
 
+class MatchSliceTests(IntegrationTests):
+    def exercise(self, nominees=False):
+        from test_large_spi_catalog import LargeCatalogTests
+        rows=LargeCatalogTests.issues(151)
+        self.github.snapshot.return_value=rows
+        self.github.open_signature.return_value=f.digest([(x['number'],x['updated_at']) for x in rows])
+        model=Model(Mock(),'fixture-only',store=self.store)
+        batches=[]
+        def paid(task,data,schema,deadline):
+            # A single paid batch is fast enough; the whole catalog is not.
+            self.assertGreaterEqual(deadline-self.now,1799)
+            self.now+=200
+            ids=[x['number'] for x in data['open_issues']];batches.append(ids)
+            return {'issue_number':ids[0] if nominees else 0,'reason':'fixture','confidence':'low'}
+        model.call=Mock(side_effect=paid);self.engine.model=model
+        deadline=self.data['deadline'];waits=0
+        with patch('time.monotonic',lambda:self.now):
+            while True:
+                sent=self.data
+                self.data=self.engine.run_v1('match',sent)
+                if self.data['status']!='deferred':break
+                waits+=1
+                self.assertEqual(self.data['code'],'MATCH_PROGRESS_DEFERRED')
+                self.assertEqual(self.data['deadline'],deadline)
+                calls=model.call.call_count
+                self.assertEqual(self.engine.run_v1('match',sent),self.data)
+                self.assertEqual(model.call.call_count,calls)
+                self.assertEqual(self.store.claim(),{'job_id':''})
+                self.store=Store(self.store.path);self.store.recover_on_start()
+                self.engine.store=model.store=self.store
+                self.now=self.data['due_at']
+                self.assertLess(waits,30)
+        self.assertEqual(self.data['stage'],'collect')
+        self.assertEqual([n for batch in batches[:13] for n in batch],list(range(1,152)))
+        self.assertEqual(len(batches),25 if nominees else 13)
+        self.assertEqual(waits,len(batches)-1)
+        self.github.snapshot.assert_called_once() # no repeated per-issue comments
+        self.assertEqual(self.store.get(self.key)['attempts'],1)
+        with self.store.db() as c:
+            self.assertEqual(c.execute('SELECT count(*) FROM job_failure_budget').fetchone()[0],0)
+
+    def test_large_match_uses_fresh_bounded_requests_without_repaying_reviews(self):
+        self.exercise()
+
+    def test_pairwise_nominee_reduction_is_also_checkpointed_between_calls(self):
+        self.exercise(nominees=True)
+
+    def test_real_timeout_remains_fatal_once_and_logs_only_valid_execution_context(self):
+        import contextlib,io
+        self.model.match.side_effect=Failure('LLM_UPSTREAM_TIMEOUT')
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output),self.assertRaisesRegex(Failure,'LLM_UPSTREAM_TIMEOUT'):
+            self.engine.run_v1('match',self.data)
+        records=[json.loads(x) for x in output.getvalue().splitlines()]
+        failed=next(x for x in records if x['event']=='stage_failed')
+        self.assertEqual(failed['n8n_execution_id'],'1234')
+        self.assertNotIn('job_id',failed)
+        self.model.match.assert_called_once()
+        with self.store.db() as c:
+            self.assertEqual(c.execute('SELECT phase FROM workflow_wait_owner WHERE job_id=?',(self.key,)).fetchone()[0],'failed')
+
+    def test_changed_fingerprint_fetches_fresh_snapshot_instead_of_cached_excerpts(self):
+        from test_large_spi_catalog import LargeCatalogTests
+        rows=LargeCatalogTests.issues(24)
+        self.github.snapshot.return_value=rows
+        self.github.open_signature.return_value='changed'
+        model=Model(Mock(),'fixture-only',store=self.store)
+        model.call=Mock(return_value={'issue_number':0,'reason':'fixture','confidence':'low'})
+        self.engine.model=model
+        self.data=self.engine.run_v1('match',self.data)
+        self.now=self.data['due_at']
+        self.data=self.engine.run_v1('match',self.data)
+        self.assertEqual(self.github.snapshot.call_count,2)
+        self.assertEqual(model.call.call_count,2)
+        self.assertEqual(self.data['stage'],'collect')
+
+
 @patch.dict('os.environ',{'SPI_TOKEN_ACCOUNTING_MODE':'byte-bound-v1'})
 class RepairTests(unittest.TestCase):
     def test_repair_budget_survives_admission_and_restart(self):

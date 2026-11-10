@@ -19,3 +19,32 @@ the same execution handled timeouts correctly, but not connection failures.
 The historical socket/DNS/TLS subtype was not retained and cannot be asserted.
 No historical execution is replayed by this fix. Subsequent independent owner
 expiry and WRITE_NEEDS_REVIEW holds must not be erased to manufacture recovery.
+
+## Large catalog stage scheduling and incident links
+
+Durable v1 Match yields MATCH_PROGRESS_DEFERRED after each checkpointed batch
+(or pairwise comparison) if further paid work remains. Each subsequent request
+gets the existing <=1800-second stage budget; the original six-hour owner
+absolute deadline, 1980-second inflight fence, request/token and repair budgets
+are unchanged. Completed proofs are replayed, never regenerated. Legacy stage
+semantics are unchanged. A real paid transport timeout remains a failure, not
+an automatic in-request retry or a pretend success.
+
+Execution16473 reviewed151 open issues:11 batches succeeded, including one
+843.626-second call. The next call started with only349 seconds of the shared
+stage budget left and timed out. Read-only proxy spend metadata confirms this;
+provider load was real, but the caller unnecessarily spent one stage budget on
+many paid batches. No provider quota, parallelism or unrelated workload changed.
+
+To avoid multiplying full comment reads on each wake, retained immutable
+excerpts are reused only when their content digest and stored issue fingerprint
+are valid AND the existing two-pass GitHub open_signature proves freshness.
+Changed fingerprints force a fresh snapshot and existing selective proof
+invalidation. No fingerprint bypass or frozen-catalog shortcut is introduced.
+
+Owned v1 stage failures log only a validated numeric n8n_execution_id alongside
+existing safe enums, never event bodies, job IDs or raw exceptions. The canonical
+homelab Grafana rule uses a separate scalar metadata query to construct an n8n
+execution URL annotation. It does not put execution IDs into alert labels or
+change condition A/C, thresholds, window or routing. Old logs without metadata
+cannot establish an execution link and are not rewritten or replayed.

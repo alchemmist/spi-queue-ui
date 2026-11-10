@@ -21,8 +21,8 @@ from card_correlation import record_receipt
 
 
 def log_event(event, level='info', **fields):
-    # Only operational counters and bounded machine codes, never evidence or IDs.
-    allowed = {'stage', 'code', 'phase', 'recovered_jobs', 'oldest_pending_seconds', 'dead_jobs', 'telegram_links_pending'}
+    # Only counters, codes and bounded human-UI execution metadata; never evidence or job IDs.
+    allowed = {'stage', 'code', 'phase', 'recovered_jobs', 'oldest_pending_seconds', 'dead_jobs', 'telegram_links_pending', 'n8n_execution_id'}
     record = {k: v for k, v in fields.items() if k in allowed}
     for key in ('stage', 'phase', 'code'):
         if key in record:
@@ -30,6 +30,8 @@ def log_event(event, level='info', **fields):
             valid = (isinstance(value, str) and bool(re.fullmatch(r'[A-Z][A-Z0-9_]{0,79}', value))) if key == 'code' else value in {'match', 'collect', 'analyze', 'publish', 'sign', 'installation', 'mint', 'publish_secret', 'bootstrap'}
             if not valid:
                 record[key] = 'REDACTED'
+    if 'n8n_execution_id' in record and not (isinstance(record['n8n_execution_id'],str) and re.fullmatch(r'[1-9][0-9]{0,14}',record['n8n_execution_id'])):
+        del record['n8n_execution_id']
     record.update(ts=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                   level=level, service='spi-triage', component='spi-triage', event=event, msg=event)
     print(json.dumps(record, separators=(',', ':')), flush=True)
@@ -96,15 +98,15 @@ class Engine:
                     if restarted is not None:
                         log_event('snapshot_revalidated',stage='match',code=exc.code)
                         return restarted
-                if exc.code in {'LLM_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','GRAPH_CAPTURE_DEFERRED'}:
+                if exc.code in {'LLM_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','MATCH_PROGRESS_DEFERRED','GRAPH_CAPTURE_DEFERRED'}:
                     try:
                         result=self.store.owners.finish(owner,True,time.time(),exc.retry_after,code=exc.code)
-                        log_event('stage_deferred','warning',stage=name,code=exc.code)
+                        log_event('stage_deferred','info' if exc.code=='MATCH_PROGRESS_DEFERRED' else 'warning',stage=name,code=exc.code)
                         return result
                     except Failure as terminal:
                         exc=terminal
                 self.store.fail(owner['job_id'],exc.code,retry_after=exc.retry_after,rate_metadata=exc.rate_metadata,on_fail=self.store.owners.failure_callback(owner))
-                log_event('stage_failed','error',stage=name,code=exc.code)
+                log_event('stage_failed','error',stage=name,code=exc.code,n8n_execution_id=owner['execution_id'])
                 raise exc
             except Exception:
                 self.store.fail(owner['job_id'],'INTERNAL_ERROR',on_fail=self.store.owners.failure_callback(owner))
@@ -129,7 +131,15 @@ class Engine:
                 r['resolved_issue']=self.store.episode_issue(event['episode'])
                 if self.delivery and not r['resolved_issue']:r['analyze_recovery']=True
             if not resolved or r.get('analyze_recovery'):
-                issues=self.github.snapshot();r['open_signature']=digest([(x['number'],x['updated_at']) for x in issues])
+                progress=self.store.match_checkpoint(key) or r.get('match_progress_v3')
+                retained=progress.get('snapshot') if isinstance(progress,dict) else None
+                # Reuse full immutable excerpts only while the same two-pass
+                # GitHub fingerprint used by analyze/publish proves freshness.
+                reusable=(isinstance(retained,list) and progress.get('signature')==digest(retained)
+                          and all(isinstance(x,dict) and type(x.get('number')) is int and isinstance(x.get('updated_at'),str) for x in retained)
+                          and digest([(x['number'],x['updated_at']) for x in retained])==r.get('open_signature'))
+                issues=retained if reusable and self.github.open_signature()==r['open_signature'] else self.github.snapshot()
+                r['open_signature']=digest([(x['number'],x['updated_at']) for x in issues])
                 def checkpoint(progress):
                     r['match_progress_v3']=progress
                     def retain(c):

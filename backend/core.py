@@ -28,7 +28,7 @@ LLM_TRANSIENT = {'LLM_'+code for code in (
     'UPSTREAM_TIMEOUT','UPSTREAM_NETWORK_ERROR','REQUEST_BUDGET_EXCEEDED',
     'MODEL_STAGE_BUDGET_EXCEEDED','ADMISSION_DEFERRED')}
 
-PATIENT_TRANSIENT = LLM_TRANSIENT | {'STORAGE_TRANSIENT', 'GITHUB_SNAPSHOT_UNSTABLE', 'GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR', 'GRAPH_CAPTURE_DEFERRED'}
+PATIENT_TRANSIENT = LLM_TRANSIENT | {'STORAGE_TRANSIENT', 'GITHUB_SNAPSHOT_UNSTABLE', 'GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','MATCH_PROGRESS_DEFERRED', 'GRAPH_CAPTURE_DEFERRED'}
 
 SECRET_KEY = re.compile(r'authorization|cookie|password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|x[_-]?token|private[_-]?key', re.I)
 SECRET_VALUE = re.compile(r'(?i)(?:bearer\s+\S+|(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]{12,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|-----BEGIN[^\n]*PRIVATE KEY-----[\s\S]*?-----END[^\n]*PRIVATE KEY-----)')
@@ -416,7 +416,7 @@ class Store:
             dead=(count>=8 and code not in PATIENT_TRANSIENT and not safe_snapshot) or code=='WRITE_NEEDS_REVIEW'
             delay=min(3600,30*2**min(count,7)*random.uniform(.8,1.2))
             if code in PATIENT_TRANSIENT and retry_after is not None:delay=max(delay,Failure(code,retry_after).retry_after or 0)
-            if code in {'LLM_ADMISSION_DEFERRED','GITHUB_SNAPSHOT_UNSTABLE','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','GRAPH_CAPTURE_DEFERRED'} or (code=='LLM_HTTP_429' and retry_after is not None):
+            if code in {'LLM_ADMISSION_DEFERRED','GITHUB_SNAPSHOT_UNSTABLE','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','MATCH_PROGRESS_DEFERRED','GRAPH_CAPTURE_DEFERRED'} or (code=='LLM_HTTP_429' and retry_after is not None):
                 delay=(Failure(code,retry_after).retry_after or 61)+random.uniform(1,3)
             if safe_snapshot:delay=15+random.uniform(0,5)
             c.execute('UPDATE jobs SET state=?,lease=0,available=?,updated=?,error=? WHERE id=?',
