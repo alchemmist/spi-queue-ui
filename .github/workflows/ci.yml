@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: Existing role to update; gateway target never replaces SPI workers
+        type: choice
+        required: true
+        default: spi-triage
+        options:
+          - spi-triage
+          - alert-graphs
 permissions:
   contents: read
 jobs:
@@ -63,10 +72,20 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: harbor.socrat.alchemmist.xyz/homelab/spi-triage:${{ github.sha }}
-      - name: Deploy to Socrat
+      - name: Deploy SPI service to Socrat
+        if: github.event_name != 'workflow_dispatch' || inputs.deploy_target != 'alert-graphs'
         uses: alchemmist/deploy-to-socrat@v1
         with:
           app: spi-triage
+          token: ${{ secrets.HOMELAB_DEPLOY_KEY }}
+          image_version: ${{ steps.image.outputs.digest }}
+
+      - name: Deploy stateless graph gateway to Socrat
+        if: github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'alert-graphs'
+        uses: alchemmist/deploy-to-socrat@v1
+        with:
+          app: grafana
+          component: alertGraphs
           token: ${{ secrets.HOMELAB_DEPLOY_KEY }}
           image_version: ${{ steps.image.outputs.digest }}
 

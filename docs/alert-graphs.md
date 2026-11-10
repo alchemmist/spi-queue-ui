@@ -226,3 +226,27 @@ not a claim that historical queue backlog or unrelated incidents were repaired.
 - Harbor, Grafana, SPI and bot are **Synced/Healthy**; all4 nodes Ready. Gateway
   and both consumer flags are enabled in deployment overrides (chart defaults
   remain off). Private backup/credential/acceptance artifacts remain outside Git.
+
+## Stateless gateway deadline and release target
+
+Telegram rendering has a **15-second gateway budget**, within the renderer's
+existing 20-second maximum. The old 4-second budget rejected genuine pod-panel
+PNGs that completed in about 4.5 seconds, making bounded bot retries ineffective.
+The bot must use a longer transport deadline (20 seconds) and a lease with enough
+headroom for transport plus bounded database completion. SPI's 20-second render
+budget, private credentials, reserved capacity and policy are unchanged.
+
+The existing full-image publisher accepts an explicit `workflow_dispatch`
+`deploy_target=alert-graphs`. This builds/tests/publishes the same complete SPI
+image and invokes `deploy-to-socrat@v1` **in that publisher job**, with
+`app=grafana, component=alertGraphs`. It updates the canonical nested image block
+in `deploy/grafana/values.yaml` and its chart mirror; the existing Grafana Argo
+Application owns the stateless gateway. No worker, SQLite/PVC, n8n owner, lease or
+quota is replaced/reset by this target. It is not a second source tree or image.
+The ordinary/default SPI target still requires an actual natural stateful drain.
+
+For a gateway-only source change, use a deliberately reviewed `[skip ci]` main
+commit to avoid an automatic stateful release, then dispatch this existing CI
+workflow with the explicit stateless target. Its full native constrained tests
+and protected publication environment still apply. Do not manually override live
+images, invoke a stateful target as a shortcut, or bypass environment approval.

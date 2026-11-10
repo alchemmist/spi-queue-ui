@@ -151,6 +151,33 @@ class RendererTests(unittest.TestCase):
         finally:
             server.shutdown(); server.server_close(); thread.join(3)
 
+    def test_primary_gateway_allows_realistic_telegram_render_time(self):
+        """A 4.5-second render failed under the old 4s gateway budget, not under 15s."""
+        now = [0.0]
+        budgets = []
+        def slow(path, seconds):
+            budgets.append(seconds)
+            now[0] += 4.5  # deterministic clock, no slow sleep or production I/O
+            return 200, 'image/png', self.raw
+        engine = self.renderer(transport=slow, clock=lambda: now[0])
+        server = Server(('127.0.0.1', 0), engine, {'telegram': 'test-tg', 'spi': 'test-spi'})
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        connection = http.client.HTTPConnection(*server.server_address, timeout=3)
+        payload = {'annotation': canonical({'version': 1, 'graphs': [graph()]}),
+                   'labels': {'service': 'api'}, 'starts_at': '2026-11-08T12:00:00Z',
+                   'observed_at': '2026-11-08T12:02:00Z', 'ends_at': None, 'status': 'firing'}
+        try:
+            connection.request('POST', '/v1/primary', body=canonical(payload),
+                               headers={'Authorization': 'Bearer test-tg', 'Content-Type': 'application/json'})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), self.raw)
+            self.assertEqual(budgets, [15])
+        finally:
+            connection.close()
+            server.shutdown(); server.server_close(); thread.join(3)
+
     def test_secret_file_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'token'

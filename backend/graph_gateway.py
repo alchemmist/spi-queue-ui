@@ -132,7 +132,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 request=resolve(specs[0],request['labels'],starts_at=request['starts_at'],
                     observed_at=request['observed_at'],ends_at=request['ends_at'],status=request['status'],purpose='telegram')
             result, meta = self.server.renderer.render(request, caller=caller,
-                                                       seconds=4 if caller == 'telegram' else 20)
+                                                       seconds=15 if caller == 'telegram' else 20)
             metadata = json.loads(meta)
             self.reply(200, result, 'image/png', {
                 'X-Content-SHA256': metadata['sha256'],
