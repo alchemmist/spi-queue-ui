@@ -14,3 +14,6 @@
 !scripts/test_all.py
 **/__pycache__/
 **/*.pyc
+!.github/
+!.github/workflows/
+!.github/workflows/ci.yml
