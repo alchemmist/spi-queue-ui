@@ -1,5 +1,6 @@
 """Isolated temporary SQLite only. No live cancellation or model requests."""
 import json
+import hashlib
 import tempfile
 import time
 import unittest
@@ -108,6 +109,76 @@ class QueueAdminTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.api.cancel({'job_id': self.key, 'expected_updated': item['updated']})
         self.assertEqual(self.store.get(self.key)['state'], 'queued')
+
+    def seed_ordering(self):
+        keys = [self.key]
+        for n in range(1, 12):
+            value = f.event(); value['event_key'] = hashlib.sha256(str(n).encode()).hexdigest(); value['episode'] = value['event_key']
+            keys.append(self.store.enqueue(value)['job_id'])
+        with self.store.db() as c:
+            for n, key in enumerate(keys):
+                event = json.loads(c.execute('SELECT event FROM jobs WHERE id=?', (key,)).fetchone()[0])
+                event['labels']['alertname'] = ['Zulu', 'alpha', 'Alpha', 'Beta'][n % 4]
+                c.execute('UPDATE jobs SET created=?,event=?,stage=?,attempts=?,state=?,result=? WHERE id=?',
+                          (100 + n // 2, json.dumps(event), n % 4, n % 3, ('queued','retry','processing')[n%3], json.dumps({'match_progress_v3':{'reviews':[{}]*(n%4),'snapshot':[]}}), key))
+                c.execute('INSERT OR REPLACE INTO job_failure_budget VALUES(?,?)',(key,n%2))
+        return keys
+
+    def test_default_oldest_created_not_stage_or_processing_priority(self):
+        self.seed_ordering()
+        rows = self.api.list({})['items']
+        self.assertEqual([(r['created'],r['id']) for r in rows], sorted((r['created'],r['id']) for r in rows))
+        self.assertEqual(self.api.list({})['sort'], 'created')
+        self.assertEqual(self.api.list({})['direction'], 'asc')
+
+    def test_cursor_all_sorts_directions_exact_ties_and_global_order(self):
+        self.seed_ordering()
+        for sort in ('created', 'alert', 'state', 'progress'):
+            for direction in ('asc', 'desc'):
+                query = {'sort':sort,'direction':direction,'limit':3}
+                expected = self.api.list({**query,'limit':100})['items']
+                seen = []
+                for _ in range(10):
+                    page = self.api.list(query); seen.extend(page['items'])
+                    if page['next_cursor'] is None:break
+                    query['after'] = page['next_cursor']
+                else:self.fail('Cursor failed to terminate')
+                self.assertEqual([r['id'] for r in seen], [r['id'] for r in expected])
+                self.assertEqual(len({r['id'] for r in seen}),12)
+                if sort == 'alert':
+                    names = [r['alertname'].lower() for r in seen]
+                    self.assertEqual(names, sorted(names,reverse=direction=='desc'))
+                if sort == 'state':
+                    rank={'queued':0,'retry':1,'processing':2}
+                    order=[(rank[r['state']],r['stage'],r['created'],r['id']) for r in seen]
+                    self.assertEqual(order,sorted(order,reverse=direction=='desc'))
+                if sort == 'progress':
+                    order=[(r['review_batches'] or 0,r['attempts'],r['failures'],r['created'],r['id']) for r in seen]
+                    self.assertEqual(order,sorted(order,reverse=direction=='desc'))
+
+    def test_created_cursor_does_not_skip_after_earlier_cancellation_or_new_arrival(self):
+        self.seed_ordering()
+        first = self.api.list({'limit':3})
+        row = first['items'][0]
+        self.api.cancel({'job_id':row['id'],'expected_updated':row['updated']})
+        value = f.event();value['event_key']=hashlib.sha256(b'new').hexdigest();value['episode']=value['event_key']
+        new = self.store.enqueue(value)['job_id']
+        following = self.api.list({'after':first['next_cursor'],'limit':100})['items']
+        self.assertEqual(len(following),10)
+        self.assertEqual(len(set(r['id'] for r in first['items']+following)),13)
+        self.assertIn(new,[r['id'] for r in following])
+
+    def test_invalid_cursor_order_values_and_sql_are_rejected(self):
+        self.seed_ordering();cursor=self.api.list({'limit':2})['next_cursor']
+        for query in ({'sort':'created;DROP TABLE jobs'}, {'direction':'desc;--'},
+                      {'after':{**cursor,'sort':'alert'}}, {'offset':1,'after':cursor},
+                      {'after':{**cursor,'values':[True,'a'*64]}},
+                      {'after':{**cursor,'values':[float('inf'),'a'*64]}},
+                      {'after':{**cursor,'values':[1,'../']}}, {'after':[]},
+                      {'after':{**cursor,'values':[1]}}):
+            with self.subTest(query=query), self.assertRaisesRegex(Failure,'INVALID_QUEUE_QUERY'):
+                self.api.list(query)
+        self.assertEqual(self.api.list({})['total'],12)
 
     def test_query_and_cancel_validation(self):
         for bad in ({'state': 'all;DROP TABLE jobs'}, {'limit': True}, {'limit': 101}, {'offset': -1}):

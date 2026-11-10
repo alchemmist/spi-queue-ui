@@ -6,6 +6,11 @@ import time
 from core import Failure
 
 STATES = ('queued', 'retry', 'processing', 'dead', 'complete', 'cancelled', 'dry_run')
+# Fixed SQL identifiers only; no client text is interpolated into SQL.
+SORTS = {'created': ('created', 'id'),
+         'alert': ('sort_alert', 'created', 'id'),
+         'state': ('sort_state', 'stage', 'created', 'id'),
+         'progress': ('sort_progress', 'attempts', 'failures', 'created', 'id')}
 
 def authorized(headers, token):
     values = headers.get_all('X-Queue-Token', [])
@@ -28,13 +33,30 @@ class QueueAdmin:
         limit = data.get('limit', 25)
         if state not in ('pending', *STATES) or type(offset) is not int or not 0 <= offset <= 100000 or type(limit) is not int or not 1 <= limit <= 100:
             raise Failure('INVALID_QUEUE_QUERY')
+        sort, direction, after = data.get('sort', 'created'), data.get('direction', 'asc'), data.get('after')
+        if not isinstance(sort, str) or sort not in SORTS or direction not in ('asc', 'desc'):
+            raise Failure('INVALID_QUEUE_QUERY')
+        columns = SORTS[sort]
+        values = []
+        if after is not None:
+            if (not isinstance(after, dict) or set(after) != {'sort', 'direction', 'values'}
+                    or after['sort'] != sort or after['direction'] != direction or offset
+                    or not isinstance(after['values'], list) or len(after['values']) != len(columns)):
+                raise Failure('INVALID_QUEUE_QUERY')
+            values = after['values']
+            for column, value in zip(columns, values):
+                if column in ('id', 'sort_alert'):
+                    if not isinstance(value, str) or len(value) > 200 or (column == 'id' and not re.fullmatch('[0-9a-f]{64}', value)):
+                        raise Failure('INVALID_QUEUE_QUERY')
+                elif type(value) not in (int, float) or not math.isfinite(value):
+                    raise Failure('INVALID_QUEUE_QUERY')
         selected = ('processing', 'queued', 'retry') if state == 'pending' else (state,)
         now = time.time()
         with self.store.db() as c:
             counts = {r['state']: r['n'] for r in c.execute('SELECT state,count(*) n FROM jobs GROUP BY state')}
             where = 'j.state IN (' + ','.join('?' for _ in selected) + ')'
             total = c.execute('SELECT count(*) FROM jobs j WHERE ' + where, selected).fetchone()[0]
-            rows = c.execute('''SELECT j.id,j.state,j.stage,j.created,j.updated,j.available,j.attempts,j.error,j.issue,
+            query = '''SELECT * FROM (SELECT j.id,j.state,j.stage,j.created,j.updated,j.available,j.attempts,j.error,j.issue,
                 j.intent IS NOT NULL AS has_intent,
                 json_extract(j.result,'$.primary_publication') IS NOT NULL AS has_primary,
                 substr(json_extract(j.event,'$.labels.alertname'),1,200) AS alertname,
@@ -47,20 +69,29 @@ class QueueAdmin:
                 o.execution_id,o.phase AS owner_phase,o.stage AS owner_stage,o.due,o.deadline,
                 json_array_length(json_extract(j.result,'$.match_progress_v3.reviews')) AS review_batches,
                 json_array_length(json_extract(j.result,'$.match_progress_v3.snapshot')) AS review_catalog,
-                o.phase IN ('ready','waiting','running','complete') AS owned
+                o.phase IN ('ready','waiting','running','complete') AS owned,
+                coalesce(substr(json_extract(j.event,'$.labels.alertname'),1,200),'') COLLATE NOCASE AS sort_alert,
+                CASE j.state WHEN 'queued' THEN 0 WHEN 'retry' THEN 1 WHEN 'processing' THEN 2
+                  WHEN 'dead' THEN 3 WHEN 'complete' THEN 4 WHEN 'cancelled' THEN 5 ELSE 6 END AS sort_state,
+                coalesce(json_array_length(json_extract(j.result,'$.match_progress_v3.reviews')),0) AS sort_progress
                 FROM jobs j LEFT JOIN job_failure_budget b ON b.job_id=j.id
-                LEFT JOIN workflow_wait_owner o ON o.job_id=j.id WHERE ''' + where + '''
-                ORDER BY CASE WHEN j.state='processing' THEN 0 ELSE 1 END,j.stage DESC,j.created,j.id LIMIT ? OFFSET ?''',
-                (*selected, limit, offset)).fetchall()
+                LEFT JOIN workflow_wait_owner o ON o.job_id=j.id WHERE ''' + where + ') AS q'
+            if after is not None:
+                query += ' WHERE (' + ','.join(columns) + ') ' + ('>' if direction == 'asc' else '<') + ' (' + ','.join('?' for _ in columns) + ')'
+            query += ' ORDER BY ' + ','.join(column + ' ' + direction for column in columns) + ' LIMIT ? OFFSET ?'
+            rows = c.execute(query, (*selected, *values, limit + 1, offset)).fetchall()
+            page = rows[:limit]
+            cursor = ({'sort':sort, 'direction':direction, 'values':[page[-1][column] for column in columns]}
+                      if len(rows) > limit else None)
             items = []
-            for r in rows:
+            for r in page:
                 item = dict(r)
                 item['can_cancel'] = (r['state'] in ('queued', 'retry') and not r['owned'] and not r['has_intent'] and not r['has_primary'] and not r['issue'])
-                for key in ('owned', 'has_intent', 'has_primary'):
+                for key in ('owned', 'has_intent', 'has_primary', 'sort_alert', 'sort_state', 'sort_progress'):
                     del item[key]
                 items.append(item)
         return {'now': now, 'counts': counts, 'total': total, 'offset': offset, 'limit': limit,
-                'items': items, 'limits': {'parallel_jobs': 1, 'requests_per_minute': 3,
+                'items': items, 'sort': sort, 'direction': direction, 'next_cursor': cursor, 'limits': {'parallel_jobs': 1, 'requests_per_minute': 3,
                 'tokens_per_minute': self.store.minute_token_limit, 'request_tokens': 30000}}
 
     def cancel(self, data):

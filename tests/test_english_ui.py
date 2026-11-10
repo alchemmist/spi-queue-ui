@@ -26,35 +26,33 @@ class EnglishUITests(unittest.TestCase):
 
     def test_render_confirmation_and_errors_are_english_but_data_is_preserved(self):
         script = r'''
-const fs=require('node:fs'), vm=require('node:vm'), assert=require('node:assert/strict');
-class Element {
-  constructor(){this.children=[];this.textContent='';this.value='pending';}
-  appendChild(el){this.children.push(el);return el;}
-  replaceChildren(){this.children=[];}
-}
-const elements=new Map(), get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
-const ctx=vm.createContext({document:{getElementById:get,createElement:()=>new Element(),hidden:false},
-  fetch:()=>new Promise(()=>{}),setInterval:()=>{},AbortSignal,confirm:text=>{ctx.confirmation=text;return false;}});
-vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
+const assert=require('node:assert/strict'), path=require('node:path');
+const {createHarness,texts}=require(path.join(path.dirname(process.argv[1]),'../tests/ui_harness.js'));
+const {context:ctx,get,run}=createHarness(process.argv[1]);
+run('stopLoading()');
 ctx.fixture={id:'a'.repeat(64),alertname:'Example alert',summary:'Исходный текст',state:'retry',
   stage:2,created:1,available:2,attempts:1,failures:0,review_catalog:2,review_batches:1,can_cancel:true};
 ctx.data={counts:{processing:1,queued:2},limits:{parallel_jobs:1,requests_per_minute:3,tokens_per_minute:30000},
   now:100,items:[ctx.fixture],total:1};
-vm.runInContext('draw(data)',ctx);
-const texts=el=>[el.textContent,...el.children.flatMap(texts)];
+run('items=[fixture]; draw(data)');
 const rendered=texts(get('items')).join('\n');
 for(const text of ['Waiting to retry','Analyze','Created:','Available at:','Failures:','Cancel','Исходный текст'])assert.ok(rendered.includes(text),text);
 assert.ok(get('counts').textContent.includes('Active: 1'));
-assert.equal(get('page').textContent,'1–1 of 1');
-vm.runInContext('busy=false;cancel(fixture,{disabled:false})',ctx);
+assert.ok(rendered.includes('a'.repeat(64)));
+assert.equal(get('items').querySelectorAll('details').length,0);
+run('busy=false;cancel(fixture,{disabled:false})');
 assert.ok(ctx.confirmation.startsWith('Cancel pending job "Example alert"?'));
 assert.ok(ctx.confirmation.includes('Its history will be preserved.'));
-assert.ok(vm.runInContext("errorMessage(new TypeError('localized browser text'))",ctx).startsWith('Unable to reach'));
-assert.ok(vm.runInContext("errorMessage({name:'TimeoutError'})",ctx).startsWith('The request timed out'));
+assert.ok(run("errorMessage(new TypeError('localized browser text'))").startsWith('Unable to reach'));
+assert.ok(run("errorMessage({name:'TimeoutError'})").startsWith('The request timed out'));
 ctx.fetch=async()=>({ok:false,redirected:false,status:401,headers:{get:()=> 'application/json'},json:async()=>({code:'AUTH_REQUIRED'})});
-(async()=>{try{await vm.runInContext("api('list',{})",ctx);assert.fail('must reject');}
+(async()=>{try{await run("api('list',{})");assert.fail('must reject');}
 catch(error){assert.ok(error.message.startsWith('Your session has expired.'));}})().catch(error=>{console.error(error);process.exitCode=1;});
 '''
         subprocess.run(['node', '-e', script, str(ROOT / 'frontend/app.js')], check=True, capture_output=True, timeout=10)
+
+    def test_sort_scroll_selection_and_bulk_cancellation_contract(self):
+        result = subprocess.run(['node', str(ROOT / 'tests/ui_interactions.js'), str(ROOT / 'frontend/app.js')], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 if __name__ == '__main__': unittest.main()

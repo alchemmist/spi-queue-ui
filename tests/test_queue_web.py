@@ -179,7 +179,7 @@ const logout=source.slice(source.indexOf("$('logout').onclick"));
 (async()=>{
  for(const scenario of [200,401,403,503,'TimeoutError','TypeError']){
   const status={},button={},redirects=[];
-  const context={$:id=>id==='logout'?button:status,
+  const context={busy:false,stopLoading:()=>{},$:id=>id==='logout'?button:status,
     window:{location:{assign:path=>redirects.push(path)}},
     AbortSignal:{timeout:()=>({})},fetch:async()=>{
      if(typeof scenario==='string')throw Object.assign(new Error('PRIVATE_DIAGNOSTIC'),{name:scenario});

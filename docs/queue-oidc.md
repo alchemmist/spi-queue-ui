@@ -86,3 +86,39 @@ fresh IdP backup, safe worker drain and protected image release. After deploymen
 verify ordinary DNS/TLS, exact IdP redirect, real personal MFA/callback, scoped
 read-only queue listing, outsider rejection, logout and old-path retirement.
 Do not cancel a production job or send notifications as an acceptance probe.
+
+
+## Queue browsing and selection
+
+The canonical UI remains `/`. Click Alert/job, State/stage, Timing/Created or
+Progress/history to toggle ascending/descending server-side order across the
+whole result, not just visible rows. Default is **Created ascending**, then job
+ID for ties. State order is queued/retry/processing/dead/complete/cancelled/dry-run,
+then numeric stage; progress uses saved match batches, then claims and failures.
+Deadline/Available remain secondary timing lines. Full job IDs are always visible.
+This is not a scheduler change: ready advanced stages, active Wait owners and
+retry availability mean actual execution is not strictly global FIFO.
+
+First 50 rows appear immediately; bounded sequential keyset pages append in the
+background and near the scroll boundary. No Previous/Next UI. Creation cursors
+avoid offset skips after earlier rows leave the queue. Changing mutable state/
+progress while browsing can move rows; refresh obtains a new live view, not a
+transactional snapshot. IDs are deduplicated. Auto-refresh pauses below the top
+and during selection; failed loads stop until explicit Retry/Refresh.
+
+Drag on **empty row space** to enter selection mode. Text dragging, links and
+buttons keep native behavior. Selection uses subtle row backgrounds, no per-row
+checkboxes. Once selected, click rows to toggle them; further drags add ranges
+with edge auto-scroll. Select all includes future pages of the current loading
+pass and waits until loading completes before permitting batch cancellation.
+Arrow keys move row focus, Space/Enter toggle, Escape/Clear selection exits.
+
+Cancel selected confirms a **frozen list of exact job IDs and updated versions**,
+then calls the existing guarded single-item endpoint sequentially. New arrivals
+are never swept in. Active/Wait/owned/publication/terminal jobs stay protected.
+Changed rows are skipped; auth/network/uncertain responses stop the batch, report
+confirmed/skipped/unconfirmed counts, and are never automatically replayed.
+Each successful cancellation has the existing transactional audit/tombstone;
+no history/evidence deletion, quota reset, retry or publication capability added.
+Temporary-SQLite browser fixture: 127 rows loaded, real mouse drag/click selection,
+126 pending cancellations with one active Wait retained. Not a production purge.
