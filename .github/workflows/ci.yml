@@ -85,7 +85,7 @@ jobs:
         uses: alchemmist/deploy-to-socrat@v1
         with:
           app: grafana
-          component: alertGraphs
+          component: gateway
           token: ${{ secrets.HOMELAB_DEPLOY_KEY }}
           image_version: ${{ steps.image.outputs.digest }}
 

@@ -13,7 +13,7 @@ class GatewayReleaseContract(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.deploy_target == 'alert-graphs'", source)
         self.assertIn("github.event_name != 'workflow_dispatch' || inputs.deploy_target != 'alert-graphs'", source)
         self.assertEqual(source.count('uses: alchemmist/deploy-to-socrat@v1'), 2)
-        self.assertIn('app: grafana\n          component: alertGraphs', source)
+        self.assertIn('app: grafana\n          component: gateway', source)
         self.assertEqual(source.count('image_version: ${{ steps.image.outputs.digest }}'), 2)
         self.assertIn('environment: spi-triage-production', source)
         self.assertNotIn('kubectl', source)

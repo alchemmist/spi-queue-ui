@@ -239,7 +239,7 @@ budget, private credentials, reserved capacity and policy are unchanged.
 The existing full-image publisher accepts an explicit `workflow_dispatch`
 `deploy_target=alert-graphs`. This builds/tests/publishes the same complete SPI
 image and invokes `deploy-to-socrat@v1` **in that publisher job**, with
-`app=grafana, component=alertGraphs`. It updates the canonical nested image block
+`app=grafana, component=gateway`. It updates the canonical gateway image block
 in `deploy/grafana/values.yaml` and its chart mirror; the existing Grafana Argo
 Application owns the stateless gateway. No worker, SQLite/PVC, n8n owner, lease or
 quota is replaced/reset by this target. It is not a second source tree or image.
