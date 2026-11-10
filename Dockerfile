@@ -30,6 +30,7 @@ COPY backend/ /workspace/backend/
 COPY frontend/ /workspace/frontend/
 COPY integrations/ /workspace/integrations/
 COPY tests/ /workspace/tests/
+COPY .github/workflows/ci.yml /workspace/.github/workflows/ci.yml
 COPY scripts/test_all.py /workspace/scripts/test_all.py
 COPY scripts/harbor_ci_auth.py /workspace/scripts/harbor_ci_auth.py
 RUN chmod -R a+rX /workspace
