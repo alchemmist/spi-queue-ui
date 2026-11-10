@@ -17,12 +17,21 @@ spec.loader.exec_module(web)
 RealConnection = http.client.HTTPConnection
 RealAuthorization = web.Handler.authorization
 
+class CompletedRequestServer(web.Server):
+    """Tests assert final cleanup only after the handler thread really returned."""
+    def __init__(self, *args):
+        self.completed = threading.Event()
+        super().__init__(*args)
+    def process_request_thread(self, request, client_address):
+        try:super().process_request_thread(request, client_address)
+        finally:self.completed.set()
+
 class QueueWebTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.auth_patch = patch.object(web.Handler, 'authorization', return_value=200)
         cls.auth_patch.start()
-        cls.server = web.Server(('127.0.0.1', 0), web.Handler)
+        cls.server = CompletedRequestServer(('127.0.0.1', 0), web.Handler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
     @classmethod
@@ -32,9 +41,11 @@ class QueueWebTests(unittest.TestCase):
     def request(self, method='GET', path='/', body=None, extra=None):
         headers = {'Host': 'spi.socrat.alchemmist.xyz', 'X-authentik-groups': 'homelab-owner'}
         headers.update(extra or {})
+        self.server.completed.clear()
         c = RealConnection('127.0.0.1', self.server.server_port, timeout=3)
         c.request(method, path, body=body, headers=headers)
         r = c.getresponse(); result = (r.status, dict(r.headers), r.read()); c.close()
+        self.assertTrue(self.server.completed.wait(3), 'Handler cleanup did not finish')
         return result
     def test_static_csp_and_no_framework(self):
         code, headers, body = self.request()
