@@ -153,12 +153,12 @@ class Server(http.server.ThreadingHTTPServer):
                         b'Cache-Control: no-store\r\nRetry-After: 1\r\n'
                         b'Connection: close\r\nContent-Length: '
                         + str(len(body)).encode() + b'\r\n\r\n' + body)
+            logging.warning('queue_frontend_busy')
             try:
                 request.settimeout(1)
                 request.sendall(response)
             except OSError:pass
             finally:self.shutdown_request(request)
-            logging.warning('queue_frontend_busy')
             return
         try:super().process_request(request, client_address)
         except BaseException:

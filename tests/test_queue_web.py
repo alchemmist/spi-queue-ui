@@ -93,19 +93,25 @@ class QueueWebTests(unittest.TestCase):
         self.assertEqual(web.ROUTES['/queue/api/cancel'], web.ROUTES['/api/cancel'])
 
     def test_exhausted_capacity_returns_http_503_not_a_proxy_bad_gateway(self):
-        acquired = 0
+        # A dedicated server avoids racing cleanup of the previous test's request.
+        server = web.Server(('127.0.0.1', 0), web.Handler)
+        for _ in range(8):self.assertTrue(server.slots.acquire(False))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
         try:
-            for _ in range(8):
-                self.assertTrue(self.server.slots.acquire(False))
-                acquired += 1
             with self.assertLogs(level='WARNING') as logs:
-                code, headers, body = self.request()
-            self.assertEqual(code, 503)
-            self.assertEqual(json.loads(body), {'code':'SERVICE_BUSY'})
-            self.assertEqual(headers['Retry-After'], '1')
+                conn = RealConnection('127.0.0.1', server.server_port, timeout=3)
+                conn.request('GET', '/', headers={'Host':'spi.socrat.alchemmist.xyz'})
+                response = conn.getresponse()
+                body = response.read()
+                self.assertEqual(response.status, 503)
+                self.assertEqual(json.loads(body), {'code':'SERVICE_BUSY'})
+                self.assertEqual(response.getheader('Retry-After'), '1')
+                conn.close()
             self.assertIn('queue_frontend_busy', str(logs.output))
         finally:
-            for _ in range(acquired):self.server.slots.release()
+            for _ in range(8):server.slots.release()
+            server.shutdown();server.server_close();thread.join(2)
         self.assertEqual(self.request()[0], 200)
 
     def test_upstream_failures_log_only_error_type_not_private_details(self):
