@@ -96,7 +96,7 @@ class Engine:
                     if restarted is not None:
                         log_event('snapshot_revalidated',stage='match',code=exc.code)
                         return restarted
-                if exc.code in {'LLM_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT','GRAPH_CAPTURE_DEFERRED'}:
+                if exc.code in {'LLM_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','GRAPH_CAPTURE_DEFERRED'}:
                     try:
                         result=self.store.owners.finish(owner,True,time.time(),exc.retry_after,code=exc.code)
                         log_event('stage_deferred','warning',stage=name,code=exc.code)

@@ -109,8 +109,9 @@ class GitHub:
         except Failure as e:
             # Semantic GitHub GET only, regardless of any transport envelope.
             # Writes retain finite failure/ambiguous-intent reconciliation rules.
-            if method == 'GET' and e.code == 'UPSTREAM_TIMEOUT':
-                raise Failure('GITHUB_READ_TIMEOUT',retry_after=60) from None
+            if method == 'GET' and e.code in {'UPSTREAM_TIMEOUT', 'UPSTREAM_NETWORK_ERROR'}:
+                code = 'GITHUB_READ_TIMEOUT' if e.code == 'UPSTREAM_TIMEOUT' else 'GITHUB_READ_NETWORK_ERROR'
+                raise Failure(code,retry_after=60) from None
             raise
     def pages(self,path):
         page=1;page_size=20

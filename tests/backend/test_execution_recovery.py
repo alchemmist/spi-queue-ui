@@ -30,6 +30,47 @@ class ReadWaitTests(IntegrationTests):
             self.assertEqual(c.execute('SELECT count(*) FROM job_failure_budget').fetchone()[0],0)
 
 
+    def test_github_network_error_waits_with_same_owner_and_survives_restart(self):
+        from integrations import GitHub, HTTP
+        from pathlib import Path
+        import urllib.error
+        token=Path(self.tmp.name)/'github-token';token.write_text('local-fixture-only')
+        http=HTTP();http.opener=Mock()
+        http.opener.open.side_effect=urllib.error.URLError(ConnectionResetError('private text must not escape'))
+        self.engine.github=GitHub(http,str(token))
+        sent=self.data
+        response=self.engine.run_v1('match',sent)
+        self.assertEqual(response['code'],'GITHUB_READ_NETWORK_ERROR')
+        self.assertEqual(response['status'],'deferred')
+        self.assertEqual(response['deadline'],sent['deadline'])
+        self.assertEqual(response['execution_id'],sent['execution_id'])
+        self.assertNotIn('private text',json.dumps(response))
+        self.model.match.assert_not_called()
+        self.assertEqual(self.engine.run_v1('match',sent),response)
+        self.assertEqual(http.opener.open.call_count,1)
+        self.assertEqual(self.store.claim(),{'job_id':''})
+        self.engine.store=Store(self.store.path);self.engine.store.recover_on_start()
+        self.now=response['due_at']
+        self.engine.github=Mock();self.engine.github.snapshot.return_value=[]
+        result=self.engine.run_v1('match',response)
+        self.assertEqual(result['stage'],'collect')
+        self.model.match.assert_called_once()
+        self.assertEqual(self.store.get(self.key)['attempts'],1)
+        with self.store.db() as c:
+            self.assertEqual(c.execute('SELECT count(*) FROM job_failure_budget').fetchone()[0],0)
+            self.assertEqual(c.execute('SELECT count(*) FROM llm_admission').fetchone()[0],0)
+        with self.assertRaises(Failure):self.engine.run_v1('match',sent)
+
+    def test_github_network_wait_does_not_extend_absolute_deadline(self):
+        with self.store.db() as c:
+            c.execute('UPDATE workflow_wait_owner SET deadline=? WHERE job_id=?',(self.now+100,self.key))
+        self.github.snapshot.side_effect=Failure('GITHUB_READ_NETWORK_ERROR',60)
+        with self.assertRaisesRegex(Failure,'WAIT_DEADLINE_EXCEEDED'):
+            self.engine.run_v1('match',self.data)
+        with self.store.db() as c:
+            self.assertEqual(c.execute('SELECT phase FROM workflow_wait_owner WHERE job_id=?',(self.key,)).fetchone()[0],'failed')
+        self.model.match.assert_not_called()
+
     def test_graph_capture_budget_resumes_same_collect_owner_without_paid_replay(self):
         sent=self.engine.run_v1('match',self.data)
         self.evidence.collect.side_effect=[Failure('GRAPH_CAPTURE_DEFERRED',1),{'missing':[]}]

@@ -22,8 +22,8 @@ class GitHubReadTimeoutTests(unittest.TestCase):
                         http=Mock();http.request.side_effect=original
                         github=GitHub(http,str(token))
                         with self.assertRaises(Failure) as caught:github.request(method,'/issues')
-                        if method=='GET' and code=='UPSTREAM_TIMEOUT':
-                            self.assertEqual(caught.exception.code,'GITHUB_READ_TIMEOUT')
+                        if method=='GET' and code in ('UPSTREAM_TIMEOUT','UPSTREAM_NETWORK_ERROR'):
+                            self.assertEqual(caught.exception.code,'GITHUB_READ_TIMEOUT' if code=='UPSTREAM_TIMEOUT' else 'GITHUB_READ_NETWORK_ERROR')
                             self.assertEqual(caught.exception.retry_after,60)
                         else:self.assertIs(caught.exception,original)
             http.request.side_effect=TimeoutError('not a typed Failure')
@@ -76,6 +76,16 @@ class GitHubReadTimeoutTests(unittest.TestCase):
             with store.db() as c:c.execute('UPDATE jobs SET intent=? WHERE id=?',('durable-intent',key))
             for _ in range(8):store.fail(key,'UPSTREAM_TIMEOUT')
             self.assertNotIn('UPSTREAM_TIMEOUT',PATIENT_TRANSIENT)
+            self.assertEqual(store.get(key)['state'],'dead')
+            self.assertEqual(store.get(key)['intent'],'durable-intent')
+
+
+    def test_write_network_error_remains_finite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store=Store(Path(tmp)/'jobs.sqlite');key=store.enqueue(f.event())['job_id'];store.claim()
+            with store.db() as c:c.execute('UPDATE jobs SET intent=? WHERE id=?',('durable-intent',key))
+            for _ in range(8):store.fail(key,'UPSTREAM_NETWORK_ERROR')
+            self.assertNotIn('UPSTREAM_NETWORK_ERROR',PATIENT_TRANSIENT)
             self.assertEqual(store.get(key)['state'],'dead')
             self.assertEqual(store.get(key)['intent'],'durable-intent')
 
