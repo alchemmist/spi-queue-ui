@@ -51,6 +51,15 @@ catch(error){assert.ok(error.message.startsWith('Your session has expired.'));}}
 '''
         subprocess.run(['node', '-e', script, str(ROOT / 'frontend/app.js')], check=True, capture_output=True, timeout=10)
 
+    def test_selection_toolbar_does_not_participate_in_table_layout(self):
+        css = (ROOT / 'frontend/style.css').read_text()
+        bar = css.split('#bulkbar {', 1)[1].split('}', 1)[0]
+        self.assertIn('position: fixed', bar)
+        self.assertIn('bottom: 1rem', bar)
+        self.assertNotIn('position: sticky', bar)
+        self.assertIn('.selecting #bulkbar { pointer-events: none; }', css)
+        self.assertIn('padding-bottom: 8rem', css)
+
     def test_sort_scroll_selection_and_bulk_cancellation_contract(self):
         result = subprocess.run(['node', str(ROOT / 'tests/ui_interactions.js'), str(ROOT / 'frontend/app.js')], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

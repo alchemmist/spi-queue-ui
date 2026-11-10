@@ -122,3 +122,8 @@ Each successful cancellation has the existing transactional audit/tombstone;
 no history/evidence deletion, quota reset, retry or publication capability added.
 Temporary-SQLite browser fixture: 127 rows loaded, real mouse drag/click selection,
 126 pending cancellations with one active Wait retained. Not a production purge.
+
+Selection actions use a fixed floating bottom toolbar, outside document flow.
+Showing/clearing selection does not move the table or change document height.
+Constant bottom clearance lets the final rows scroll above it; while dragging,
+the overlay passes pointer hit-testing through to the underlying rows.

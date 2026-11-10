@@ -23,7 +23,12 @@ button:focus-visible, tr:focus-visible { outline: 2px solid Highlight; outline-o
 .job-id { font-size: .75rem; color: GrayText; opacity: 1; margin-top: .35rem; overflow-wrap: anywhere; }
 tr.selected { background: rgba(125, 185, 230, .14); }
 .selecting, .selecting * { user-select: none !important; cursor: crosshair; }
-#bulkbar { display: flex; align-items: center; flex-wrap: wrap; gap: .7rem; padding: .5rem 0; position: sticky; top: 0; background: Canvas; z-index: 2; border-bottom: 1px solid GrayText; }
+/* Floating actions never enter document flow or move rows under a drag. */
+#bulkbar { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .7rem; padding: .6rem .8rem; position: fixed; bottom: 1rem; left: 1rem; right: 1rem; width: fit-content; max-width: calc(100% - 3.6rem); margin-inline: auto; background: Canvas; color: CanvasText; z-index: 2; border: 1px solid GrayText; border-radius: .4rem; box-shadow: 0 .2rem .8rem rgba(0, 0, 0, .15); }
+/* Constant end clearance allows the final row to scroll above the overlay. */
+body { padding-bottom: 8rem; }
+/* Hit-testing must still reach rows beneath the floating bar during a drag. */
+.selecting #bulkbar { pointer-events: none; }
 .select-all { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; }
 .select-all small { display: inline; }
 #sentinel { height: 1px; }
