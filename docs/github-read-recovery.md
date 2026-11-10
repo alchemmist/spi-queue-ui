@@ -48,3 +48,22 @@ homelab Grafana rule uses a separate scalar metadata query to construct an n8n
 execution URL annotation. It does not put execution IDs into alert labels or
 change condition A/C, thresholds, window or routing. Old logs without metadata
 cannot establish an execution link and are not rewritten or replayed.
+
+## Consumer compatibility and publication safety
+
+Every safe deferred code emitted by the backend must also be accepted by the
+actual exported n8n Select Claimed Job JavaScript. Offline contract tests derive
+the producer set from WaitOwners.finish, include capacity admission, execute the
+exported validator in Node, and retain negative ownership/deadline/error tests.
+Execution16795 exposed missing MATCH_PROGRESS_DEFERRED; GITHUB_READ_NETWORK_ERROR
+was also absent from the consumer and is now included. Unknown/unsafe errors
+remain rejected. The homelab operational export must be kept in agreement.
+
+A normal push still runs complete tests/build/publication, but MUST NOT commit
+a new SPI worker image to GitOps. Stateful deployment now requires explicit
+workflow_dispatch deploy_target=spi-triage and prior actual natural SPI-only
+owner/pending/paid/inflight drain proof. A successful build or an empty GitHub
+environment protection_rules list is not such proof. Workflow metadata fixes
+are applied narrowly through the native API, preserving identity, credentials,
+settings/activity and existing execution snapshots; no worker replacement or
+historical execution replay is required.
