@@ -1,0 +1,279 @@
+{
+  "version": 1,
+  "max_open": 20,
+  "automatic_create": false,
+  "topics": {
+    "registry": {
+      "issue": 6,
+      "title": "Registry bootstrap and external image availability",
+      "members": [
+        6
+      ]
+    },
+    "observability": {
+      "issue": 9,
+      "title": "Telemetry, collector reliability and monitoring blind spots",
+      "members": [
+        9,
+        11,
+        14,
+        20,
+        32,
+        39,
+        113,
+        117,
+        119,
+        120,
+        130,
+        154,
+        155
+      ]
+    },
+    "spi": {
+      "issue": 12,
+      "title": "SPI processing, ownership, queue and publication reliability",
+      "members": [
+        10,
+        12,
+        13,
+        22,
+        24,
+        38,
+        45,
+        46,
+        47,
+        64,
+        76,
+        77,
+        78,
+        82,
+        84,
+        86,
+        87,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        100,
+        101,
+        106,
+        138,
+        140,
+        150,
+        151,
+        159,
+        160,
+        161,
+        162,
+        164,
+        165,
+        166,
+        167,
+        169,
+        170,
+        171,
+        172
+      ]
+    },
+    "capacity": {
+      "issue": 16,
+      "title": "Node CPU and I/O resource contention",
+      "members": [
+        16,
+        29,
+        30,
+        43,
+        44,
+        48
+      ]
+    },
+    "review": {
+      "issue": 17,
+      "title": "Unclassified incidents and high-impact promotion queue",
+      "members": [
+        17
+      ]
+    },
+    "memory": {
+      "issue": 18,
+      "title": "Cluster memory capacity and overcommitment",
+      "members": [
+        18
+      ]
+    },
+    "notifications": {
+      "issue": 19,
+      "title": "Alert delivery and notification transport",
+      "members": [
+        19
+      ]
+    },
+    "lms": {
+      "issue": 21,
+      "title": "LMS availability and authentication failures",
+      "members": [
+        21,
+        54,
+        149,
+        173,
+        175
+      ]
+    },
+    "harbor": {
+      "issue": 25,
+      "title": "Harbor jobservice and registry runtime reliability",
+      "members": [
+        25,
+        26,
+        31,
+        34,
+        35,
+        36,
+        37,
+        40,
+        41
+      ]
+    },
+    "prometheus": {
+      "issue": 42,
+      "title": "Prometheus availability and TSDB integrity",
+      "members": [
+        42,
+        66
+      ]
+    },
+    "probes": {
+      "issue": 50,
+      "title": "Availability checks and rollout readiness investigations",
+      "members": [
+        27,
+        49,
+        50,
+        53,
+        55,
+        57,
+        59,
+        60,
+        61,
+        62,
+        63,
+        65,
+        67,
+        68,
+        69,
+        71,
+        109,
+        110,
+        114,
+        118,
+        121,
+        123,
+        124,
+        125,
+        126,
+        127,
+        129,
+        131,
+        133,
+        136,
+        137,
+        145,
+        147,
+        148,
+        152,
+        153,
+        156,
+        158
+      ]
+    },
+    "calendar": {
+      "issue": 51,
+      "title": "Calendar session and announcement reliability",
+      "members": [
+        51,
+        52
+      ]
+    },
+    "n8n": {
+      "issue": 56,
+      "title": "n8n memory and execution runtime stability",
+      "members": [
+        56,
+        58
+      ]
+    },
+    "kuma": {
+      "issue": 72,
+      "title": "Uptime Kuma application and database reliability",
+      "members": [
+        72,
+        73,
+        74,
+        75,
+        88
+      ]
+    },
+    "network": {
+      "issue": 79,
+      "title": "NetBird, STUN and VPN transport reliability",
+      "members": [
+        79,
+        80,
+        108,
+        115,
+        116,
+        122,
+        139,
+        142
+      ]
+    },
+    "storage": {
+      "issue": 112,
+      "title": "Storage provisioner and RustFS access reliability",
+      "members": [
+        111,
+        112,
+        128,
+        141
+      ]
+    },
+    "node": {
+      "issue": 135,
+      "title": "Cluster node reachability and readiness",
+      "members": [
+        135,
+        143,
+        144
+      ]
+    },
+    "imgproxy": {
+      "issue": 146,
+      "title": "Image proxy upstream network and IPv6 failures",
+      "members": [
+        70,
+        132,
+        146
+      ]
+    },
+    "observer": {
+      "issue": 174,
+      "title": "Cluster observer membership reconciliation",
+      "members": [
+        174
+      ]
+    },
+    "metricsapi": {
+      "issue": 176,
+      "title": "Kubernetes aggregated Metrics API availability",
+      "members": [
+        176
+      ]
+    }
+  }
+}

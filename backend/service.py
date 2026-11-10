@@ -18,6 +18,7 @@ from grafana_links import repair_markdown_links
 from telegram_delivery import Delivery
 from telegram_links import primary_url
 from card_correlation import record_receipt
+from managed_catalog import ManagedCatalog
 
 
 def log_event(event, level='info', **fields):
@@ -37,11 +38,11 @@ def log_event(event, level='info', **fields):
     print(json.dumps(record, separators=(',', ':')), flush=True)
 
 class Engine:
-    def __init__(self,store,github,model,evidence,write=False,delivery=None,storage=None,storage_backend='legacy'):
+    def __init__(self,store,github,model,evidence,write=False,delivery=None,storage=None,storage_backend='legacy',catalog=None):
         self.store=store;self.github=github;self.model=model;self.evidence=evidence;self.write=write
         if storage_backend not in {'legacy','s3'}:raise ValueError('Invalid storage backend')
         self.storage=storage;self.storage_backend=storage_backend
-        self.lock=threading.Lock();self.delivery=delivery
+        self.lock=threading.Lock();self.delivery=delivery;self.catalog=catalog
     def claim(self, data=None):
         if data is not None:
             return self.store.owners.claim(data.get('execution_id'),data.get('workflow_revision'),time.time())
@@ -126,33 +127,55 @@ class Engine:
         if job['stage']!=wanted-1 or job['state']!='processing':raise Failure('INVALID_STAGE_ORDER')
         r=job['result'];event=job['event'];resolved=event['status']=='resolved'
         if not job['intent']:self.store.snapshot_guard(key)
+        if self.catalog and name!='match' and not r.get('catalog_route') and not job['intent']:
+            previous=(r.get('report') or {}).get('issue_number',0)
+            r['catalog_route']=self.catalog.route(event,previous=previous)
+            self.catalog.issue(self.github,r['catalog_route'])
         if name=='match':
             if resolved:
                 r['resolved_issue']=self.store.episode_issue(event['episode'])
+                if self.catalog and r['resolved_issue'] in self.catalog.aliases:
+                    r['catalog_route']=self.catalog.route(event,previous=r['resolved_issue'])
+                    r['resolved_issue']=r['catalog_route']['issue']
                 if self.delivery and not r['resolved_issue']:r['analyze_recovery']=True
             if not resolved or r.get('analyze_recovery'):
-                progress=self.store.match_checkpoint(key) or r.get('match_progress_v3')
-                retained=progress.get('snapshot') if isinstance(progress,dict) else None
-                # Reuse full immutable excerpts only while the same two-pass
-                # GitHub fingerprint used by analyze/publish proves freshness.
-                reusable=(isinstance(retained,list) and progress.get('signature')==digest(retained)
-                          and all(isinstance(x,dict) and type(x.get('number')) is int and isinstance(x.get('updated_at'),str) for x in retained)
-                          and digest([(x['number'],x['updated_at']) for x in retained])==r.get('open_signature'))
-                issues=retained if reusable and self.github.open_signature()==r['open_signature'] else self.github.snapshot()
-                r['open_signature']=digest([(x['number'],x['updated_at']) for x in issues])
-                def checkpoint(progress):
-                    r['match_progress_v3']=progress
-                    def retain(c):
-                        c.execute('INSERT OR REPLACE INTO match_review_v3 VALUES(?,?)',(key,json.dumps(progress)))
-                    self.store.save(key,0,r,on_save=retain)
-                r['match']=self.model.match(event,issues,progress=self.store.match_checkpoint(key) or r.get('match_progress_v3'),on_progress=checkpoint)
+                if self.catalog:
+                    route=self.catalog.route(event)
+                    candidate=self.catalog.issue(self.github,route)
+                    r['catalog_route']=route
+                    r['match']={'decision':{'issue_number':candidate['number'],'reason':route['reason'],'confidence':'low'},
+                                'candidates':[candidate],'reviewed_numbers':[], 'routing':route}
+                else:
+                    progress=self.store.match_checkpoint(key) or r.get('match_progress_v3')
+                    retained=progress.get('snapshot') if isinstance(progress,dict) else None
+                    # Reuse full immutable excerpts only while the same two-pass
+                    # GitHub fingerprint used by analyze/publish proves freshness.
+                    reusable=(isinstance(retained,list) and progress.get('signature')==digest(retained)
+                              and all(isinstance(x,dict) and type(x.get('number')) is int and isinstance(x.get('updated_at'),str) for x in retained)
+                              and digest([(x['number'],x['updated_at']) for x in retained])==r.get('open_signature'))
+                    issues=retained if reusable and self.github.open_signature()==r['open_signature'] else self.github.snapshot()
+                    r['open_signature']=digest([(x['number'],x['updated_at']) for x in issues])
+                    def checkpoint(progress):
+                        r['match_progress_v3']=progress
+                        def retain(c):
+                            c.execute('INSERT OR REPLACE INTO match_review_v3 VALUES(?,?)',(key,json.dumps(progress)))
+                        self.store.save(key,0,r,on_save=retain)
+                    r['match']=self.model.match(event,issues,progress=self.store.match_checkpoint(key) or r.get('match_progress_v3'),on_progress=checkpoint)
         elif name=='collect':
             if not resolved or r.get('resolved_issue') or r.get('analyze_recovery'):r['evidence']=self.evidence.collect(event)
         elif name=='analyze':
             if not resolved or r.get('analyze_recovery'):
-                if not job['intent'] and self.github.open_signature()!=r['open_signature']:
+                if self.catalog and r.get('catalog_route'):
+                    self.catalog.issue(self.github,r['catalog_route'])
+                elif not job['intent'] and self.github.open_signature()!=r['open_signature']:
                     self.invalidate_snapshot(key,r,job)
                 r['report']=self.model.analyze(event,r['match'],r['evidence']);render(r['report'],event)
+                if (self.catalog and r.get('catalog_route',{}).get('topic')=='probes'
+                        and r['report']['severity'] in {'critical','high'}):
+                    # Persist the paid report with its promotion; validate the
+                    # new anchor in publish, never redo analysis for a GET wait.
+                    r['catalog_original_route']=r['catalog_route']
+                    r['catalog_route']=self.catalog.route(event,previous=self.catalog.topics['review']['issue'])
         elif name=='publish':
             if not self.write:
                 self.store.save(key,4,r,state='dry_run');return {'job_id':key,'status':'dry_run','issue_number':0}
@@ -178,22 +201,32 @@ class Engine:
                 raise Failure('WRITE_NEEDS_REVIEW')
             if resolved and not r.get('analyze_recovery'):
                 number=r['resolved_issue']
+                if self.catalog and r.get('catalog_route'):self.catalog.issue(self.github,r['catalog_route'])
                 existing=self.github.request('GET','/issues/'+str(number)) if number else None
                 if not number or existing.get('state')!='open':
                     self.store.save(key,4,r,state='complete',issue=number or 0);return {'job_id':key,'status':'resolved_without_open_spi'}
                 title='';body='## Incident resolved\n\nObserved recovery at '+(event['endsAt'] or 'an unspecified time')+'.\n\nResolution does not establish root-cause remediation; this issue remains open.\n\n'+marker
             else:
-                issues=self.github.snapshot()
-                if digest([(x['number'],x['updated_at']) for x in issues])!=r['open_signature']:
-                    self.invalidate_snapshot(key,r,job)
-                title,body=render(r['report'],event);number=r['report']['issue_number']
-                if number not in {0,*[x['number']for x in r['match']['candidates']]}:raise Failure('INVALID_MATCH_TARGET')
-            if r['publication_backend']=='s3':
-                objects=self.upload_evidence(key,r)
-                if not resolved or r.get('analyze_recovery'):
+                if self.catalog and r.get('catalog_route'):
+                    self.catalog.issue(self.github,r['catalog_route'])
+                    title,body=render(r['report'],event)
+                    body=self.catalog.banner(r['catalog_route'],r['report']['issue_number'])+body
+                    number=r['catalog_route']['issue']
+                else:
                     issues=self.github.snapshot()
                     if digest([(x['number'],x['updated_at']) for x in issues])!=r['open_signature']:
                         self.invalidate_snapshot(key,r,job)
+                    title,body=render(r['report'],event);number=r['report']['issue_number']
+                    if number not in {0,*[x['number']for x in r['match']['candidates']]}:raise Failure('INVALID_MATCH_TARGET')
+            if r['publication_backend']=='s3':
+                objects=self.upload_evidence(key,r)
+                if not resolved or r.get('analyze_recovery'):
+                    if self.catalog and r.get('catalog_route'):
+                        self.catalog.issue(self.github,r['catalog_route'])
+                    else:
+                        issues=self.github.snapshot()
+                        if digest([(x['number'],x['updated_at']) for x in issues])!=r['open_signature']:
+                            self.invalidate_snapshot(key,r,job)
                 if resolved and not r.get('analyze_recovery'):
                     existing=self.github.request('GET','/issues/'+str(number))
                     if existing.get('state')!='open':
@@ -320,10 +353,10 @@ def serve():
     recovered=store.recover_on_start()
     log_event('worker_started', recovered_jobs=recovered)
     delivery=Delivery(store,os.environ.get('BOT_INTERNAL_TOKEN',''),enabled=os.environ.get('SPI_TELEGRAM_LINKS_ENABLED','false')=='true')
-    engine=Engine(store,GitHub(http,os.environ.get('GITHUB_TOKEN_FILE','/github/token')),
-                  model,Evidence(http,os.environ['GRAFANA_TOKEN'],os.environ['GRAFANA_URL'],github=GitHub(http,os.environ.get('GITHUB_TOKEN_FILE','/github/token'))),
+    engine=Engine(store,GitHub(http,os.environ.get('GITHUB_TOKEN_FILE','/github/token'),allow_issue_creation=False),
+                  model,Evidence(http,os.environ['GRAFANA_TOKEN'],os.environ['GRAFANA_URL'],github=GitHub(http,os.environ.get('GITHUB_TOKEN_FILE','/github/token'),allow_issue_creation=False)),
                   write=os.environ.get('WRITE_ENABLED')=='true',delivery=delivery,
-                  storage=storage,storage_backend=storage_backend)
+                  storage=storage,storage_backend=storage_backend,catalog=ManagedCatalog())
     delivery.github=engine.github
     dispatcher=Dispatcher(store,os.environ['WORKER_TOKEN'],enabled=os.environ.get('SPI_DISPATCH_ENABLED','false')=='true',busy=engine.lock.locked)
     dispatcher.start();delivery.start()

@@ -97,11 +97,14 @@ class HTTP:
         except (ValueError,UnicodeError): raise Failure('INVALID_UPSTREAM_JSON') from None
 
 class GitHub:
-    def __init__(self,http,token_file,repo='alchemmist/homelab'):
+    def __init__(self,http,token_file,repo='alchemmist/homelab',allow_issue_creation=True):
         if repo != 'alchemmist/homelab': raise Failure('REPOSITORY_NOT_ALLOWED')
         self.http=http;self.token_file=token_file;self.root='https://api.github.com/repos/'+repo
+        self.allow_issue_creation=allow_issue_creation
     def request(self,method,path,body=None):
         if not path.startswith('/') or '..' in path or '://' in path: raise Failure('INVALID_GITHUB_PATH')
+        if method.upper()=='POST' and path.split('?',1)[0].rstrip('/')=='/issues' and not self.allow_issue_creation:
+            raise Failure('AUTOMATIC_SPI_CREATION_DISABLED')
         token=Path(self.token_file).read_text().strip()
         if not token: raise Failure('GITHUB_TOKEN_UNAVAILABLE')
         try:
@@ -501,6 +504,8 @@ class Model:
         evidence['queries']=[{**q,'result':metric_summary(q.get('result',{}))} if q.get('source') in ('prometheus_metrics','loki_error_frequency','host_log_error_frequency','loki_rule_metric') else q for q in evidence.get('queries',[])]
         evidence['rule_definitions']=[{k:v for k,v in r.items() if k!='alerts'} for r in evidence.get('rule_definitions',[])]
         task='Write an evidence-grounded SPI report. Revalidate preliminary matching using diagnostics; choose 0 if a distinct cause is supported. Assess alert noise and actionable tuning separately from service defects. Include safe evidence references in facts; never fabricate a source path or threshold. Scrape exporter pods are not necessarily affected workloads: use job_name or systemd unit when present. Zero error counts or absent series never confirm no service degradation; Every verified fact MUST cite at least one existing artifact ID from the exact artifact_context.index allowlist; never invent an evidence ID. Use artifact IDs when citing collected logs, traces, deployment metadata and metric samples. Explain excerpt/collection limits; never claim all stored bytes were reviewed. Missing logs do not prove health. OCI revision labels are build claims, not reproducible-build proof; main-branch runbooks are not deployed code.'
+        if match.get('routing'):
+            task+=' This is fixed organizational workstream routing, NOT proof of a shared root cause. Keep independent failures separate in your findings. You may choose issue_number=0 when no shared cause is established; the report will still be filed under the managed topic without creating an issue. Do not infer root cause from the topic title.'
         original={'alert':event,'preliminary_match':match,'evidence':evidence}
         ids=self.analysis_reference_ids(original)
         if ids is not None:
