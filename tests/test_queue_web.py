@@ -99,6 +99,30 @@ class QueueWebTests(unittest.TestCase):
         self.assertEqual(set(kwargs['headers']), {'Content-Type', 'X-Queue-Token'})
         self.assertNotIn(b'local-fixture-token', body)
         connection.close.assert_called_once()
+    def test_bulk_endpoint_uses_one_fixed_request_with_route_scoped_body_limit(self):
+        ids=[format(n,'064x') for n in range(400)]
+        body=json.dumps({'items':[{'job_id':key,'expected_updated':1} for key in ids]})
+        self.assertGreater(len(body),2048)
+        response=Mock(status=200);response.read.return_value=json.dumps({'cancelled':ids,'already_cancelled':[], 'skipped':[], 'counts':{'cancelled':400}, 'now':1}).encode()
+        connection=Mock();connection.getresponse.return_value=response
+        headers={'Origin':web.ORIGIN,'X-SPI-Queue':'1','Content-Type':'application/json'}
+        with patch.object(web.http.client,'HTTPConnection',return_value=connection):
+            self.assertEqual(self.request('POST','/api/cancel-batch',body,headers)[0],200)
+        connection.request.assert_called_once()
+        args,kwargs=connection.request.call_args
+        self.assertEqual(args,('POST','/operator/queue/cancel-batch'))
+        self.assertEqual(json.loads(kwargs['body']),json.loads(body))
+        for route,length in [('/api/list',2049),('/api/cancel',2049),('/api/cancel-batch',512001)]:
+            with patch.object(web.http.client,'HTTPConnection') as upstream:
+                self.assertEqual(self.request('POST',route,'',{**headers,'Content-Length':str(length)})[0],400)
+                upstream.assert_not_called()
+        with patch.object(web.Handler,'authorization',return_value=401), patch.object(web.http.client,'HTTPConnection') as upstream:
+            self.assertEqual(self.request('POST','/api/cancel-batch',body,headers)[0],401)
+            upstream.assert_not_called()
+        with patch.object(web.http.client,'HTTPConnection') as upstream:
+            self.assertEqual(self.request('POST','/api/cancel-batch',body,{'Content-Type':'application/json'})[0],403)
+            upstream.assert_not_called()
+
     def test_old_tab_api_remains_a_fixed_authenticated_alias(self):
         self.assertEqual(web.ROUTES['/queue/api/list'], web.ROUTES['/api/list'])
         self.assertEqual(web.ROUTES['/queue/api/cancel'], web.ROUTES['/api/cancel'])

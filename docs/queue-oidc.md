@@ -114,7 +114,7 @@ pass and waits until loading completes before permitting batch cancellation.
 Arrow keys move row focus, Space/Enter toggle, Escape/Clear selection exits.
 
 Cancel selected confirms a **frozen list of exact job IDs and updated versions**,
-then calls the existing guarded single-item endpoint sequentially. New arrivals
+then sends one bounded batch request to `/api/cancel-batch`. New arrivals
 are never swept in. Active/Wait/owned/publication/terminal jobs stay protected.
 Changed rows are skipped; auth/network/uncertain responses stop the batch, report
 confirmed/skipped/unconfirmed counts, and are never automatically replayed.
@@ -127,3 +127,24 @@ Selection actions use a fixed floating bottom toolbar, outside document flow.
 Showing/clearing selection does not move the table or change document height.
 Constant bottom clearance lets the final rows scroll above it; while dragging,
 the overlay passes pointer hit-testing through to the underlying rows.
+
+
+### Fast batch cancellation
+
+Up to 4000 selected pending versions are submitted in one bounded request
+(512000-byte ceiling scoped only to the new BFF route). Backend validates every
+entry first, then uses connection-local memory tables, one BEGIN IMMEDIATE
+transaction, set-based audit insertion and one set-based UPDATE. Claim/owner,
+publication and expected-updated guards are checked under that same write lock.
+Missing/changed/protected items are reported, not forced. Audit/write errors roll
+back the whole transaction. Repeating confirmed cancellations is idempotent and
+does not duplicate receipts. No history/paid accounting/owner state is deleted.
+
+Frontend removes only confirmed IDs and updates counts in place from the batch
+reply; there is no per-item HTTP loop or full-list reload on the critical path.
+Unknown/lost/malformed replies leave rows visible and require a manual readback,
+not automatic replay. Source regressions cover 400 rows in one request and one
+transaction, rollback, version/owner/publication guards, idempotency and bounds.
+Real local browser+temporary SQLite: 400 queued jobs cancelled with 1 request,
+0 single-cancel requests, no post-action list request; SQL transaction 0.0086s.
+This is fixture timing, not a production network latency guarantee/purge.

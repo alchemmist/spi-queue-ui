@@ -60,31 +60,47 @@ const pointer = (target,y) => ({target,button:0,buttons:1,isPrimary:true,pointer
     assert.equal(posted.at(-1).sort,'alert');assert.equal(posted.at(-1).direction,'asc');
   }
   {
-    const h=setup(),requests=[];h.context.confirm=()=>true;
-    h.run('for(const item of items)selected.set(item.id,{...item});selectionUI()');
+    const jobs=Array.from({length:400},(_,n)=>item(n+1));
+    const h=setup([...jobs,item(999,{can_cancel:false,state:'processing'})]),requests=[];
+    h.context.confirm=()=>true;h.run('for(const item of items)selected.set(item.id,{...item});selectionUI()');
     h.context.fetch=async(url,options)=>{
-      requests.push([url,JSON.parse(options.body)]);
-      assert.equal(url,'/api/cancel');
-      if(requests.length===1){h.context.newArrival=item(9);h.run('items.push(newArrival);fixture[1].updated=999');return response({status:'cancelled'});}
-      if(requests.length===2)return response({code:'QUEUE_ITEM_CHANGED'},409);
-      return response({code:'AUTH_REQUIRED'},401);
+      const body=JSON.parse(options.body);requests.push([url,body]);assert.equal(url,'/api/cancel-batch');
+      assert.equal(body.items.length,400);assert.equal(body.items[0].expected_updated,1);
+      h.context.newArrival=item(9000);h.run('items.push(newArrival);fixture[0].updated=999');
+      return response({cancelled:jobs.map(x=>x.id),already_cancelled:[],skipped:[],counts:{queued:1,processing:1,cancelled:400},now:123});
     };
     await h.run('cancelSelected()');
-    assert.equal(requests.length,3);assert.equal(requests[1][1].expected_updated,2);
-    assert.ok(!requests.some(([,body])=>body.job_id===item(9).id));
-    assert.ok(h.get('status').textContent.includes('1 cancelled · 1 changed/protected and skipped · 2 not confirmed'));
-    assert.ok(h.get('status').textContent.includes('session has expired'));
-    assert.equal(h.run('busy'),false);assert.equal(h.run('loadFailed'),true);
-    await h.run('loadMore()');h.events.interval();assert.equal(requests.length,3);
+    assert.equal(requests.length,1);assert.equal(h.run('items.length'),2);
+    assert.equal(h.run('items[1].id'),item(9000).id);assert.equal(h.run('selected.has(items[1].id)'),false);
+    assert.ok(!requests[0][1].items.some(x=>x.job_id===item(9000).id));
+    assert.equal(h.run('selected.size'),1);assert.ok(h.get('status').textContent.includes('400 cancelled · 1 changed/protected'));
+    assert.ok(h.get('counts').textContent.includes('Cancelled: 400'));assert.equal(h.get('items').children.length,2);
   }
   {
-    const h=setup([item(1),item(2,{can_cancel:false,state:'processing'})]),posted=[];
-    h.context.confirm=()=>true;h.run('for(const item of items)selected.set(item.id,{...item});selectionUI()');
-    h.context.fetch=async(url,options)=>{posted.push([url,JSON.parse(options.body)]);return response(url.endsWith('/cancel')?{status:'cancelled'}:data([item(2,{can_cancel:false,state:'processing'}),item(9)]));};
-    await h.run('cancelSelected()');
-    assert.equal(posted.filter(([url])=>url.endsWith('/cancel')).length,1);
-    assert.equal(posted[0][1].job_id,item(1).id);assert.equal(h.run('selected.has(items[1].id)'),false);
-    assert.ok(h.get('status').textContent.startsWith('1 cancelled'));assert.equal(h.run('selectAll'),false);
+    const h=setup(),requests=[];h.context.confirm=()=>true;
+    h.run('for(const item of items)selected.set(item.id,{...item})');
+    h.context.fetch=async(url,options)=>{
+      requests.push([url,JSON.parse(options.body)]);
+      return response({cancelled:[item(1).id],already_cancelled:[],skipped:[2,3,4].map(n=>({job_id:item(n).id,code:'QUEUE_ITEM_CHANGED'})),counts:{queued:3,cancelled:1},now:123});
+    };
+    await h.run('cancelSelected()');assert.equal(requests.length,1);assert.equal(h.run('items.length'),3);
+    assert.equal(h.run('selected.size'),0);assert.equal(h.run('items.every(x=>!x.can_cancel)'),true);
+    assert.ok(h.get('status').textContent.includes('1 cancelled · 3 changed/protected'));
+  }
+  for(const scenario of ['auth','lost-reply','malformed']) {
+    const h=setup(),requests=[];h.context.confirm=()=>true;
+    h.run('for(const item of items)selected.set(item.id,{...item})');
+    h.context.fetch=async(url,options)=>{
+      requests.push([url,JSON.parse(options.body)]);
+      if(scenario==='auth')return response({code:'AUTH_REQUIRED'},401);
+      if(scenario==='lost-reply')throw new TypeError('offline');
+      return response({cancelled:[item(1).id],already_cancelled:[],skipped:[],counts:{},now:123});
+    };
+    await h.run('cancelSelected()');assert.equal(requests.length,1);
+    assert.equal(h.run('items.length'),4);assert.equal(h.run('selected.size'),4);
+    assert.ok(h.get('status').textContent.includes('Cancellation not confirmed'));
+    assert.equal(h.run('busy'),false);assert.equal(h.run('loadFailed'),true);
+    await h.run('loadMore()');h.events.interval();assert.equal(requests.length,1);
   }
   {
     const h=setup(),posted=[];let resolve;

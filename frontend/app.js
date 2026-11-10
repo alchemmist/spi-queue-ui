@@ -5,6 +5,7 @@ const stages = ['Match', 'Collect', 'Analyze', 'Publish', 'Done'];
 const limit = 50;
 let loadFailed = false, retryReset = true;
 let busy = false, loading = false, generation = 0, controller, loadTimer, cursor = null;
+let lastData = null;
 let items = [], total = 0, sort = 'created', direction = 'asc', selectAll = false;
 let gesture = null, scrollFrame = 0, skipClick = false;
 const selected = new Map(), rows = new Map();
@@ -64,10 +65,12 @@ function toggle(item) {
   selectionUI();
 }
 function draw(data, append = false) {
+  lastData = {...data, items:[]};
   const c = data.counts;
   $('counts').textContent = 'Active: ' + (c.processing || 0) + ' · Queued: ' + (c.queued || 0) + ' · Retry: ' + (c.retry || 0) + ' · Dead: ' + (c.dead || 0) + ' · Completed: ' + (c.complete || 0) + ' · Cancelled: ' + (c.cancelled || 0);
   $('limits').textContent = 'Concurrency: ' + data.limits.parallel_jobs + ' job · LLM: ' + data.limits.requests_per_minute + ' RPM / ' + data.limits.tokens_per_minute + ' TPM · Updated: ' + date(data.now);
   if (!append) { $('items').replaceChildren(); rows.clear(); }
+  else if (!rows.size) $('items').replaceChildren();
   const fragment = document.createDocumentFragment();
   for (const item of data.items) {
     const row = node('tr', null, fragment);
@@ -101,7 +104,7 @@ function draw(data, append = false) {
       const button = node('button', 'Cancel', action); button.type = 'button'; button.onclick = () => cancel(item, button); button.disabled = busy;
     } else node('small', '—', action);
   }
-  if (!append && !data.items.length) { const td = node('td', 'No jobs in this list.', node('tr', null, fragment)); td.colSpan = 5; }
+  if (!rows.size && !data.items.length) { const td = node('td', cursor ? 'Loading remaining jobs…' : 'No jobs in this list.', node('tr', null, fragment)); td.colSpan = 5; }
   $('items').appendChild(fragment);
   selectionUI(); controls();
 }
@@ -149,32 +152,50 @@ async function loadPage(reset, keepMessage = false) {
 }
 const loadMore = (manual = false) => !loadFailed || manual ? loadPage(false) : undefined;
 const refresh = (keepMessage = false) => loadPage(true, keepMessage);
+function validateBatchResult(result, snapshot) {
+  if (!result || !Array.isArray(result.cancelled) || !Array.isArray(result.already_cancelled)
+      || !Array.isArray(result.skipped) || !result.counts || typeof result.counts !== 'object' || Array.isArray(result.counts)
+      || !Number.isFinite(result.now)) throw new SyntaxError();
+  const expected = new Set(snapshot.map(item => item.id)), seen = new Set();
+  const record = id => { if (!expected.has(id) || seen.has(id)) throw new SyntaxError(); seen.add(id); };
+  for (const id of [...result.cancelled, ...result.already_cancelled]) record(id);
+  for (const item of result.skipped) {
+    if (!item || !['QUEUE_ITEM_CHANGED','QUEUE_ITEM_NOT_CANCELLABLE','JOB_NOT_FOUND'].includes(item.code)) throw new SyntaxError();
+    record(item.job_id);
+  }
+  if (seen.size !== expected.size || !Object.keys(result.counts).every(state => Object.hasOwn(states, state))
+      || (result.counts.cancelled || 0) < result.cancelled.length + result.already_cancelled.length
+      || !Object.values(result.counts).every(n => Number.isInteger(n) && n >= 0)) throw new SyntaxError();
+}
 async function runCancellations(snapshot, protectedCount = 0) {
+  if (snapshot.length > 4000) { $('status').textContent = 'Select up to 4000 pending jobs per batch.'; return; }
   busy = true; stopLoading(); selectAll = false; controls(); selectionUI();
   for (const row of rows.values()) for (const button of row.querySelectorAll('button')) button.disabled = true;
-  let done = 0, skipped = 0, failure = '';
+  $('status').textContent = 'Cancelling ' + snapshot.length + ' jobs…';
+  let result;
   try {
-    for (const item of snapshot) {
-      $('status').textContent = 'Cancelling ' + (done + skipped + 1) + ' of ' + snapshot.length + '…';
-      try {
-        const result = await api('cancel', {job_id:item.id, expected_updated:item.updated});
-        if (result.status !== 'cancelled') throw new SyntaxError();
-        done++; selected.delete(item.id);
-      } catch (error) {
-        if (['QUEUE_ITEM_CHANGED', 'QUEUE_ITEM_NOT_CANCELLABLE', 'JOB_NOT_FOUND'].includes(error.code)) { skipped++; selected.delete(item.id); continue; }
-        failure = errorMessage(error); break; // Uncertain response/auth failure: stop, never replay automatically.
-      }
-    }
+    // Exactly one HTTP request and one backend transaction, not N requests/fsyncs.
+    result = await api('cancel-batch', {items:snapshot.map(item => ({job_id:item.id, expected_updated:item.updated}))});
+    validateBatchResult(result, snapshot);
+  } catch (error) {
+    $('status').textContent = 'Cancellation not confirmed. Refresh to check the queue before trying again. ' + errorMessage(error);
+    loadFailed = true; retryReset = true; $('retry-load').hidden = false;
+    return; // A lost reply may follow a committed batch: never replay automatically.
   } finally {
-    busy = false; controls(); selectionUI();
-  }
-  $('status').textContent = done + ' cancelled · ' + (skipped + protectedCount) + ' changed/protected and skipped · ' + (snapshot.length - done - skipped) + ' not confirmed. History preserved.' + (failure ? ' ' + failure : '');
-  if (failure) {
-    loadFailed = true; retryReset = true; $('retry-load').hidden = false; loadedStatus();
+    busy = false; controls(); selectionUI(); loadedStatus();
     for (const row of rows.values()) for (const button of row.querySelectorAll('button')) button.disabled = false;
-    return;
   }
-  await refresh(true);
+  const removed = new Set([...result.cancelled, ...result.already_cancelled]);
+  const skipped = new Set(result.skipped.map(item => item.job_id));
+  for (const item of snapshot) selected.delete(item.id);
+  items = items.filter(item => !removed.has(item.id));
+  for (const item of items) if (skipped.has(item.id)) item.can_cancel = false; // Re-read before another attempt on changed data.
+  const filter = $('filter').value;
+  total = filter === 'pending' ? ['queued','retry','processing'].reduce((n, state) => n + (result.counts[state] || 0), 0) : result.counts[filter] || 0;
+  loadFailed = false; $('retry-load').hidden = true;
+  draw({...lastData, counts:result.counts, now:result.now, items});
+  $('status').textContent = removed.size + ' cancelled · ' + (result.skipped.length + protectedCount) + ' changed/protected and skipped. History preserved.';
+  loadedStatus(); scheduleLoad(); // Remove confirmed rows immediately; no full-list reload on the critical path.
 }
 async function cancel(item, button) {
   if (busy || !confirm('Cancel pending job "' + (item.alertname || item.id) + '"?\nIt will no longer be processed automatically. Its history will be preserved.')) return;

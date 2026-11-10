@@ -1,6 +1,6 @@
 """Native OIDC operator BFF, isolated from worker machine credentials.
 Only verified opaque server sessions authorize; caller identity headers are ignored.
-Only two fixed backend routes; no cookie, OIDC token or worker token forwarding.
+Only fixed bounded backend routes; no cookie, OIDC token or worker token forwarding.
 """
 import http.client
 import http.server
@@ -18,7 +18,7 @@ OIDC_CLIENT = None
 ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
           '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
           '/style.css': ('style.css', 'text/css; charset=utf-8')}
-ROUTES = {'/api/list': '/operator/queue/list', '/api/cancel': '/operator/queue/cancel',
+ROUTES = {'/api/cancel-batch': '/operator/queue/cancel-batch', '/api/list': '/operator/queue/list', '/api/cancel': '/operator/queue/cancel',
           # Existing open tabs may still use the old API until their next reload.
           '/queue/api/list': '/operator/queue/list', '/queue/api/cancel': '/operator/queue/cancel'}
 LEGACY_REDIRECTS = {'/queue': '/', '/queue/': '/',
@@ -110,10 +110,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, b'{}', cookies=(OIDC_CLIENT.logout(self.headers),))
         route = ROUTES.get(self.path)
         if not route:return self.send(404, b'{}')
+        body_limit = 512000 if self.path == '/api/cancel-batch' else 2048
         lengths = self.headers.get_all('Content-Length', [])
         if (self.headers.get('Transfer-Encoding') is not None or len(lengths) != 1
-                or len(lengths[0]) > 4 or not lengths[0].isascii() or not lengths[0].isdecimal()
-                or not 0 < int(lengths[0]) <= 2048
+                or len(lengths[0]) > len(str(body_limit)) or not lengths[0].isascii() or not lengths[0].isdecimal()
+                or not 0 < int(lengths[0]) <= body_limit
                 or self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json'):
             return self.send(400, b'{"code":"INVALID_REQUEST"}')
         connection = None

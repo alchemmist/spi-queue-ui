@@ -358,14 +358,14 @@ def serve():
                 return self.send(200,'\n'.join(lines)+'\n','text/plain; version=0.0.4')
             return self.send(404,{'code':'NOT_FOUND'})
         def do_POST(self):
-            if self.path in ('/operator/queue/list', '/operator/queue/cancel'):
+            if self.path in ('/operator/queue/list', '/operator/queue/cancel', '/operator/queue/cancel-batch'):
                 if queue_admin is None or not queue_authorized(self.headers, queue_token):
                     return self.send(403, {'code':'FORBIDDEN'})
                 try:
                     data = read_request_body(self)
                     if self.path.endswith('/list'):
                         return self.send(200, queue_admin.list(data))
-                    result = queue_admin.cancel(data)
+                    result = queue_admin.cancel_batch(data) if self.path.endswith('/cancel-batch') else queue_admin.cancel(data)
                     dispatcher.signal()
                     return self.send(200, result)
                 except Failure as e:

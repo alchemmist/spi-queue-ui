@@ -5,6 +5,8 @@ import re
 import time
 from core import Failure
 
+MAX_CANCEL_BATCH = 4000
+
 STATES = ('queued', 'retry', 'processing', 'dead', 'complete', 'cancelled', 'dry_run')
 # Fixed SQL identifiers only; no client text is interpolated into SQL.
 SORTS = {'created': ('created', 'id'),
@@ -117,3 +119,56 @@ class QueueAdmin:
             c.execute("UPDATE jobs SET state='cancelled',lease=0,updated=?,error='OPERATOR_CANCELLED' WHERE id=?", (now, key))
             c.execute("INSERT INTO queue_operator_actions(job_id,action,at,previous_state,previous_error,previous_updated,source) VALUES(?,'cancel',?,?,?,?,'private-sso-queue-ui')", (key, now, row['state'], row['error'], row['updated']))
         return {'status': 'cancelled', 'already_applied': False}
+
+
+    def cancel_batch(self, data):
+        """One fenced transaction, one wake. Never cancel a live owner/publication.
+
+        The temporary tables are connection-local, memory-backed and bounded.
+        Audits and job updates commit together or all roll back on any failure.
+        """
+        requests = data.get('items')
+        if not isinstance(requests, list) or not 1 <= len(requests) <= MAX_CANCEL_BATCH or set(data) != {'items'}:
+            raise Failure('INVALID_QUEUE_CANCEL_BATCH')
+        values = []
+        seen = set()
+        for item in requests:
+            if not isinstance(item, dict) or set(item) != {'job_id', 'expected_updated'}:
+                raise Failure('INVALID_QUEUE_CANCEL_BATCH')
+            key, expected = item['job_id'], item['expected_updated']
+            try:valid_version = type(expected) in (int, float) and math.isfinite(expected)
+            except OverflowError:valid_version = False
+            if (not isinstance(key, str) or not re.fullmatch('[0-9a-f]{64}', key) or key in seen
+                    or not valid_version):
+                raise Failure('INVALID_QUEUE_CANCEL_BATCH')
+            seen.add(key); values.append((key, expected))
+        cancelled, already, skipped = [], [], []
+        with self.store.db() as c:
+            c.execute('CREATE TEMP TABLE cancel_batch_input(id TEXT PRIMARY KEY,expected REAL NOT NULL)')
+            c.executemany('INSERT INTO cancel_batch_input VALUES(?,?)', values)
+            rows = c.execute("""SELECT i.id,i.expected,j.id AS found,j.state,j.updated,j.intent,j.issue,
+                json_extract(j.result,'$.primary_publication') AS primary_receipt,
+                EXISTS(SELECT 1 FROM workflow_wait_owner o WHERE o.job_id=j.id
+                  AND o.phase IN ('ready','waiting','running','complete')) AS owned,
+                EXISTS(SELECT 1 FROM queue_operator_actions a WHERE a.job_id=j.id AND a.action='cancel') AS audited
+                FROM cancel_batch_input i LEFT JOIN jobs j ON j.id=i.id""").fetchall()
+            for row in rows:
+                code = None
+                if row['found'] is None:code = 'JOB_NOT_FOUND'
+                elif row['state'] == 'cancelled' and row['audited']:
+                    already.append(row['id']); continue
+                elif row['updated'] != row['expected']:code = 'QUEUE_ITEM_CHANGED'
+                elif (row['state'] not in ('queued', 'retry') or row['owned'] or row['intent'] is not None
+                      or row['primary_receipt'] is not None or row['issue']):code = 'QUEUE_ITEM_NOT_CANCELLABLE'
+                if code:skipped.append({'job_id':row['id'], 'code':code})
+                else:cancelled.append(row['id'])
+            c.execute('CREATE TEMP TABLE cancel_batch_eligible(id TEXT PRIMARY KEY)')
+            c.executemany('INSERT INTO cancel_batch_eligible VALUES(?)', ((key,) for key in cancelled))
+            now = time.time()
+            c.execute("""INSERT INTO queue_operator_actions(job_id,action,at,previous_state,previous_error,previous_updated,source)
+                SELECT j.id,'cancel',?,j.state,j.error,j.updated,'private-sso-queue-ui'
+                FROM jobs j JOIN cancel_batch_eligible e ON e.id=j.id""", (now,))
+            c.execute("""UPDATE jobs SET state='cancelled',lease=0,updated=?,error='OPERATOR_CANCELLED'
+                WHERE id IN (SELECT id FROM cancel_batch_eligible)""", (now,))
+            counts = {r['state']:r['n'] for r in c.execute('SELECT state,count(*) n FROM jobs GROUP BY state')}
+        return {'cancelled':cancelled, 'already_cancelled':already, 'skipped':skipped, 'counts':counts, 'now':now}

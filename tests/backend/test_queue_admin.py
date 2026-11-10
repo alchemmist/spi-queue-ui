@@ -180,6 +180,80 @@ class QueueAdminTests(unittest.TestCase):
                 self.api.list(query)
         self.assertEqual(self.api.list({})['total'],12)
 
+    def seed_batch(self, count):
+        event = json.dumps(f.event())
+        values = [(hashlib.sha256(('batch'+str(n)).encode()).hexdigest(), event) for n in range(count)]
+        with self.store.db() as c:
+            c.executemany("INSERT INTO jobs(id,episode,event,created,updated,available,result,state) VALUES(?,? ,?,1,1,1,?, 'queued')",
+                          [(key,key,event,json.dumps({'safe_checkpoint':key})) for key,event in values])
+        return [{'job_id':key,'expected_updated':1} for key,_ in values]
+
+    def test_bulk_400_one_transaction_preserves_history_and_is_idempotent(self):
+        from unittest.mock import patch
+        batch = self.seed_batch(400)
+        with patch.object(self.store, 'db', wraps=self.store.db) as transactions:
+            result = self.api.cancel_batch({'items':batch})
+        self.assertEqual(transactions.call_count,1)
+        self.assertEqual(len(result['cancelled']),400)
+        self.assertEqual(result['skipped'],[])
+        with self.store.db() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM queue_operator_actions").fetchone()[0],400)
+            self.assertEqual(c.execute("SELECT count(*) FROM jobs WHERE state='cancelled' AND json_extract(result,'$.safe_checkpoint')=id").fetchone()[0],400)
+            self.assertEqual(c.execute('SELECT count(*) FROM jobs').fetchone()[0],401)
+        again = self.api.cancel_batch({'items':batch})
+        self.assertEqual(len(again['already_cancelled']),400)
+        self.assertEqual(again['cancelled'],[])
+        with self.store.db() as c:self.assertEqual(c.execute('SELECT count(*) FROM queue_operator_actions').fetchone()[0],400)
+        self.assertEqual(self.store.get(self.key)['state'],'queued') # unselected arrival untouched
+
+    def test_bulk_skips_changed_owned_and_publication_rows_in_same_commit(self):
+        self.store.claim()
+        owner=self.store.owners.bind(self.key,'123','durable-v1','match',time.time())
+        self.store.owners.defer(owner,'LLM_ADMISSION_DEFERRED',61,time.time())
+        batch = self.seed_batch(6)
+        with self.store.db() as c:
+            c.execute('UPDATE jobs SET updated=2 WHERE id=?',(batch[0]['job_id'],))
+            c.execute("UPDATE jobs SET state='processing' WHERE id=?",(batch[1]['job_id'],))
+            c.execute("UPDATE jobs SET intent='{}' WHERE id=?",(batch[2]['job_id'],))
+            c.execute("UPDATE jobs SET result=? WHERE id=?",(json.dumps({'primary_publication':{'id':1}}),batch[3]['job_id']))
+            c.execute('UPDATE jobs SET issue=123 WHERE id=?',(batch[4]['job_id'],))
+        row=self.store.get(self.key)
+        result=self.api.cancel_batch({'items':batch+[{'job_id':self.key,'expected_updated':row['updated']}, {'job_id':'f'*64,'expected_updated':1}]})
+        self.assertEqual(result['cancelled'],[batch[5]['job_id']])
+        self.assertEqual(len(result['skipped']),7)
+        self.assertIn('QUEUE_ITEM_CHANGED',[r['code'] for r in result['skipped']])
+        self.assertIn('JOB_NOT_FOUND',[r['code'] for r in result['skipped']])
+        self.assertEqual(self.store.get(self.key)['state'],'processing')
+
+    def test_bulk_audit_error_rolls_back_entire_batch(self):
+        batch=self.seed_batch(10)
+        with self.store.db() as c:
+            c.execute("CREATE TRIGGER block_batch_audit BEFORE INSERT ON queue_operator_actions WHEN NEW.job_id='"+batch[5]['job_id']+"' BEGIN SELECT RAISE(ABORT,'fixture'); END")
+        with self.assertRaises(Exception):self.api.cancel_batch({'items':batch})
+        with self.store.db() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM jobs WHERE state='cancelled'").fetchone()[0],0)
+            self.assertEqual(c.execute('SELECT count(*) FROM queue_operator_actions').fetchone()[0],0)
+
+    def test_bulk_rejects_invalid_or_duplicate_input_without_partial_writes(self):
+        batch=self.seed_batch(1)
+        for bad in ({}, {'items':[]}, {'items':batch*4001}, {'items':batch*2},
+                    {'items':batch+[{'job_id':'bad','expected_updated':1}]},
+                    {'items':[{'job_id':self.key,'expected_updated':True}]},
+                    {'items':[{'job_id':self.key,'expected_updated':float('nan')}]},
+                    {'items':[{'job_id':self.key,'expected_updated':2**13000}]},
+                    {'items':batch,'state':'pending'}):
+            with self.assertRaisesRegex(Failure,'INVALID_QUEUE_CANCEL_BATCH'):self.api.cancel_batch(bad)
+        self.assertEqual(self.store.get(batch[0]['job_id'])['state'],'queued')
+
+    def test_bulk_maximum_stays_inside_fixed_http_body_and_response_bounds(self):
+        from queue_admin import MAX_CANCEL_BATCH
+        batch=self.seed_batch(MAX_CANCEL_BATCH)
+        self.assertLess(len(json.dumps({'items':batch}).encode()),512000)
+        with self.store.db() as c:c.execute("UPDATE jobs SET state='processing'")
+        result=self.api.cancel_batch({'items':batch})
+        self.assertEqual(len(result['skipped']),MAX_CANCEL_BATCH)
+        self.assertLess(len(json.dumps(result).encode()),512000)
+
     def test_query_and_cancel_validation(self):
         for bad in ({'state': 'all;DROP TABLE jobs'}, {'limit': True}, {'limit': 101}, {'offset': -1}):
             with self.assertRaisesRegex(Failure, 'INVALID_QUEUE_QUERY'):self.api.list(bad)
