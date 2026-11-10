@@ -275,7 +275,7 @@ class NativeHTTPFlowTests(unittest.TestCase):
                 return result
 
             try:
-                self.assertEqual(request("/queue/")[0], 302)
+                self.assertEqual(request("/")[0], 302)
                 start = request("/login")
                 self.assertEqual(start[0], 302)
                 params = urllib.parse.parse_qs(
@@ -287,18 +287,19 @@ class NativeHTTPFlowTests(unittest.TestCase):
                     start[2][0].split(";")[0],
                 )
                 self.assertEqual(callback[0], 303)
+                self.assertEqual(callback[1]['Location'], '/')
                 session = next(
                     c.split(";")[0]
                     for c in callback[2]
                     if c.startswith(q.SESSION_COOKIE + "=")
                 )
-                content = request("/queue/", session)
+                content = request("/", session)
                 self.assertEqual(content[0], 200)
                 self.assertNotIn(b"http-fixture", content[3])
                 self.assertEqual(request("/logout", session, "POST")[0], 200)
-                self.assertEqual(request("/queue/", session)[0], 302)
+                self.assertEqual(request("/", session)[0], 302)
                 self.assertEqual(request("/logout", session, "POST")[0], 401)
-                self.assertEqual(request("/queue/", session)[0], 302)
+                self.assertEqual(request("/", session)[0], 302)
             finally:
                 server.shutdown()
                 server.server_close()

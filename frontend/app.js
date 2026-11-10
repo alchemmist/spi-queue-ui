@@ -13,14 +13,14 @@ function node(tag, value, parent) {
   return el;
 }
 async function api(action, data) {
-  const response = await fetch('/queue/api/' + action, {method:'POST', credentials:'same-origin',
+  const response = await fetch('/api/' + action, {method:'POST', credentials:'same-origin',
     headers:{'Content-Type':'application/json', 'X-SPI-Queue':'1'}, body:JSON.stringify(data),
     signal:AbortSignal.timeout(18000)});
   if (response.redirected || !(response.headers.get('Content-Type') || '').includes('application/json'))
     throw new Error('Check your SSO session: reopen this page.');
   const result = await response.json();
   if (!response.ok) {
-    const messages = {AUTH_UNAVAILABLE:'SSO is temporarily unavailable. Displayed data may be stale.', FORBIDDEN:'You do not have permission to manage the queue.', AUTH_REQUIRED:'Your session has expired. Reopen /queue/ to sign in with SSO.', QUEUE_ITEM_CHANGED:'The job has changed. Refresh the list.', QUEUE_ITEM_NOT_CANCELLABLE:'The job is already running or has publication activity and cannot be cancelled.', QUEUE_UNAVAILABLE:'The backend is temporarily unavailable. Displayed data may be stale.'};
+    const messages = {SERVICE_BUSY:'The service is busy. Refresh to try again.', AUTH_UNAVAILABLE:'SSO is temporarily unavailable. Displayed data may be stale.', FORBIDDEN:'You do not have permission to manage the queue.', AUTH_REQUIRED:'Your session has expired. Reopen this site to sign in with SSO.', QUEUE_ITEM_CHANGED:'The job has changed. Refresh the list.', QUEUE_ITEM_NOT_CANCELLABLE:'The job is already running or has publication activity and cannot be cancelled.', QUEUE_UNAVAILABLE:'The backend is temporarily unavailable. Displayed data may be stale.'};
     throw new Error(messages[result.code] || 'Request failed (' + (result.code || response.status) + ').');
   }
   return result;

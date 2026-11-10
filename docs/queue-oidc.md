@@ -2,7 +2,8 @@
 
 ## Status — implementation prepared, not activated
 
-Canonical URL: `https://spi.socrat.alchemmist.xyz/queue/` (root redirects there).
+Canonical URL: `https://spi.socrat.alchemmist.xyz/` (the UI is served directly at root).
+Legacy `/queue/` bookmarks redirect to `/`; the callback returns to `/`.
 This is the existing frontend Deployment in the existing SPI Application and
 shared image, not a second worker, database, Argo app or CI publisher. The old
 RustFS URL is not the intended service identity. No DNS record/router change is

@@ -29,7 +29,7 @@ class QueueWebTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.server.shutdown(); cls.server.server_close(); cls.thread.join(2)
         cls.auth_patch.stop()
-    def request(self, method='GET', path='/queue/', body=None, extra=None):
+    def request(self, method='GET', path='/', body=None, extra=None):
         headers = {'Host': 'spi.socrat.alchemmist.xyz', 'X-authentik-groups': 'homelab-owner'}
         headers.update(extra or {})
         c = RealConnection('127.0.0.1', self.server.server_port, timeout=3)
@@ -44,6 +44,12 @@ class QueueWebTests(unittest.TestCase):
         self.assertIn("script-src 'self'", headers['Content-Security-Policy'])
         self.assertNotIn("'unsafe-inline'", headers['Content-Security-Policy'])
         self.assertNotIn(b'https://', body)
+        self.assertIn(b'href="/style.css"', body)
+        self.assertIn(b'src="/app.js"', body)
+        self.assertNotIn(b'/queue/', body)
+        self.assertNotIn('Location', headers)
+        self.assertEqual(self.request(path='/app.js')[0], 200)
+        self.assertEqual(self.request(path='/style.css')[0], 200)
         js = (ROOT / 'frontend/app.js').read_text()
         self.assertNotIn('innerHTML', js)
         self.assertIn('textContent', js)
@@ -53,6 +59,8 @@ class QueueWebTests(unittest.TestCase):
         self.assertEqual(self.request(path='/queue/../../service.py')[0], 404)
         self.assertEqual(self.request(path='/queue/app.js?x=1')[0], 404)
         self.assertEqual(self.request(path='/queue')[0], 308)
+        self.assertEqual(self.request(path='/queue/')[1]['Location'], '/')
+        self.assertEqual(self.request(path='/queue/app.js')[1]['Location'], '/app.js')
     def test_anonymous_challenge_returns_exact_queue_and_does_not_trust_identity_header(self):
         with patch.object(web.Handler, 'authorization', return_value=401):
             code, headers, _ = self.request(extra={'X-authentik-groups':'homelab-owner'})
@@ -63,7 +71,7 @@ class QueueWebTests(unittest.TestCase):
         for extra in ({}, {'Origin':'https://evil.invalid', 'X-SPI-Queue':'1'},
                       {'Origin':web.ORIGIN, 'X-SPI-Queue':'1', 'Sec-Fetch-Site':'cross-site'}):
             with patch.object(web.http.client, 'HTTPConnection') as upstream:
-                self.assertEqual(self.request('POST', '/queue/api/cancel', '{}', extra)[0], 403)
+                self.assertEqual(self.request('POST', '/api/cancel', '{}', extra)[0], 403)
                 upstream.assert_not_called()
     def test_fixed_upstream_and_no_cookie_identity_or_worker_header_forwarding(self):
         response = Mock(status=200)
@@ -72,7 +80,7 @@ class QueueWebTests(unittest.TestCase):
         headers = {'Origin':web.ORIGIN, 'X-SPI-Queue':'1', 'Content-Type':'application/json',
                    'Cookie':'opaque-test', 'X-Worker-Token':'must-not-forward'}
         with patch.object(web, 'TOKEN', 'local-fixture-token'), patch.object(web.http.client, 'HTTPConnection', return_value=connection) as factory:
-            code, _, body = self.request('POST', '/queue/api/list', '{}', headers)
+            code, _, body = self.request('POST', '/api/list', '{}', headers)
         self.assertEqual(code, 200)
         factory.assert_called_once_with('spi-triage.automation.svc.cluster.local', 8080, timeout=8)
         args, kwargs = connection.request.call_args
@@ -80,10 +88,38 @@ class QueueWebTests(unittest.TestCase):
         self.assertEqual(set(kwargs['headers']), {'Content-Type', 'X-Queue-Token'})
         self.assertNotIn(b'local-fixture-token', body)
         connection.close.assert_called_once()
+    def test_old_tab_api_remains_a_fixed_authenticated_alias(self):
+        self.assertEqual(web.ROUTES['/queue/api/list'], web.ROUTES['/api/list'])
+        self.assertEqual(web.ROUTES['/queue/api/cancel'], web.ROUTES['/api/cancel'])
+
+    def test_exhausted_capacity_returns_http_503_not_a_proxy_bad_gateway(self):
+        acquired = 0
+        try:
+            for _ in range(8):
+                self.assertTrue(self.server.slots.acquire(False))
+                acquired += 1
+            with self.assertLogs(level='WARNING') as logs:
+                code, headers, body = self.request()
+            self.assertEqual(code, 503)
+            self.assertEqual(json.loads(body), {'code':'SERVICE_BUSY'})
+            self.assertEqual(headers['Retry-After'], '1')
+            self.assertIn('queue_frontend_busy', str(logs.output))
+        finally:
+            for _ in range(acquired):self.server.slots.release()
+        self.assertEqual(self.request()[0], 200)
+
+    def test_upstream_failures_log_only_error_type_not_private_details(self):
+        headers = {'Origin':web.ORIGIN, 'X-SPI-Queue':'1', 'Content-Type':'application/json'}
+        with patch.object(web.http.client, 'HTTPConnection', side_effect=OSError('PRIVATE_SENTINEL')):
+            with self.assertLogs(level='WARNING') as logs:
+                self.assertEqual(self.request('POST', '/api/list', '{}', headers)[0], 502)
+        self.assertIn('OSError', str(logs.output))
+        self.assertNotIn('PRIVATE_SENTINEL', str(logs.output))
+
     def test_no_arbitrary_proxy_target_or_cors(self):
         headers = {'Origin':web.ORIGIN, 'X-SPI-Queue':'1', 'Content-Type':'application/json'}
         with patch.object(web.http.client, 'HTTPConnection') as upstream:
-            self.assertEqual(self.request('POST', '/queue/api/claim', '{}', headers)[0], 404)
+            self.assertEqual(self.request('POST', '/api/claim', '{}', headers)[0], 404)
             upstream.assert_not_called()
         code, response_headers, _ = self.request('OPTIONS')
         self.assertEqual(code, 405)

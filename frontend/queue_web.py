@@ -5,6 +5,8 @@ Only two fixed backend routes; no cookie, OIDC token or worker token forwarding.
 import http.client
 import http.server
 import json
+import logging
+import sys
 from pathlib import Path
 import socket
 import threading
@@ -13,10 +15,14 @@ import urllib.parse
 from queue_oidc import OIDC, ORIGIN, Rejected, Unavailable, STATE_COOKIE, cookie
 
 OIDC_CLIENT = None
-ASSETS = {'/queue/': ('index.html', 'text/html; charset=utf-8'),
-          '/queue/app.js': ('app.js', 'text/javascript; charset=utf-8'),
-          '/queue/style.css': ('style.css', 'text/css; charset=utf-8')}
-ROUTES = {'/queue/api/list': '/operator/queue/list', '/queue/api/cancel': '/operator/queue/cancel'}
+ASSETS = {'/': ('index.html', 'text/html; charset=utf-8'),
+          '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+          '/style.css': ('style.css', 'text/css; charset=utf-8')}
+ROUTES = {'/api/list': '/operator/queue/list', '/api/cancel': '/operator/queue/cancel',
+          # Existing open tabs may still use the old API until their next reload.
+          '/queue/api/list': '/operator/queue/list', '/queue/api/cancel': '/operator/queue/cancel'}
+LEGACY_REDIRECTS = {'/queue': '/', '/queue/': '/',
+                    '/queue/app.js': '/app.js', '/queue/style.css': '/style.css'}
 TOKEN = ''
 
 def expire(sock):
@@ -65,7 +71,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if OIDC_CLIENT is None:return self.send(503, b'{"code":"AUTH_UNAVAILABLE"}')
             try:
                 session = OIDC_CLIENT.finish(path.query, self.headers)
-                return self.send(303, b'', location='/queue/', cookies=(session, cookie(STATE_COOKIE)))
+                return self.send(303, b'', location='/', cookies=(session, cookie(STATE_COOKIE)))
             except Rejected:
                 return self.send(401, b'{"code":"OIDC_REJECTED"}', cookies=(cookie(STATE_COOKIE),))
             except Unavailable:
@@ -84,7 +90,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if auth == 401:
                 return self.send(302, b'', location='/login')
             return self.send(auth, b'{"code":"AUTH_UNAVAILABLE"}')
-        if self.path in ('/', '/queue'):return self.send(308, b'', location='/queue/')
+        if self.path in LEGACY_REDIRECTS:
+            return self.send(308, b'', location=LEGACY_REDIRECTS[self.path])
         asset = ASSETS.get(self.path)
         if not asset:return self.send(404, b'{}')
         self.send(200, Path(__file__).with_name(asset[0]).read_bytes(), asset[1])
@@ -123,7 +130,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             data = json.loads(body)
             if not isinstance(data, dict):raise ValueError()
             self.send(response.status, json.dumps(data).encode())
-        except (ValueError, OSError, http.client.HTTPException):
+        except (ValueError, OSError, http.client.HTTPException) as error:
+            # Never log URLs, cookies, request/response bodies or exception text.
+            logging.warning('queue_upstream_unavailable reason=%s', type(error).__name__)
             self.send(502, b'{"code":"QUEUE_UNAVAILABLE"}')
         finally:
             if connection:connection.close()
@@ -136,7 +145,21 @@ class Server(http.server.ThreadingHTTPServer):
         self.slots = threading.BoundedSemaphore(8)
         super().__init__(*args)
     def process_request(self, request, client_address):
-        if not self.slots.acquire(False):return self.shutdown_request(request)
+        if not self.slots.acquire(False):
+            # Closing without an HTTP response becomes a misleading proxy 502.
+            body = b'{"code":"SERVICE_BUSY"}'
+            response = (b'HTTP/1.1 503 Service Unavailable\r\n'
+                        b'Content-Type: application/json\r\n'
+                        b'Cache-Control: no-store\r\nRetry-After: 1\r\n'
+                        b'Connection: close\r\nContent-Length: '
+                        + str(len(body)).encode() + b'\r\n\r\n' + body)
+            try:
+                request.settimeout(1)
+                request.sendall(response)
+            except OSError:pass
+            finally:self.shutdown_request(request)
+            logging.warning('queue_frontend_busy')
+            return
         try:super().process_request(request, client_address)
         except BaseException:
             self.slots.release()
@@ -144,7 +167,9 @@ class Server(http.server.ThreadingHTTPServer):
     def process_request_thread(self, request, client_address):
         try:super().process_request_thread(request, client_address)
         finally:self.slots.release()
-    def handle_error(self, request, client_address):pass
+    def handle_error(self, request, client_address):
+        error = sys.exc_info()[0]
+        logging.warning('queue_request_failed reason=%s', error.__name__ if error else 'unknown')
 
 if __name__ == '__main__':
     OIDC_CLIENT = OIDC.from_file()
