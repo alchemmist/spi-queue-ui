@@ -628,7 +628,7 @@ class TelemetryCollector:
                 namespace=None
                 missing.append(_gap('log_scope','JOB_POD_NOT_VERIFIED','Exporter pod labels were not used as affected job pods. Raw job logs were not queried without a verified pod.'))
 
-        if pod and any(x in pod for x in ('kube-state-metrics','node-exporter')) and not evidence.get('verified_workload_pod'):
+        if pod and any(x in pod for x in ('kube-state-metrics','node-exporter')) and evidence.get('verified_workload_pod')!=pod:
             namespace=None;pod=None;container=None;service=None
             missing.append(_gap('log_scope','EXPORTER_POD_NOT_VERIFIED',
                                 'Scrape exporter identity was not verified as an affected workload. No broader log selector was substituted.'))

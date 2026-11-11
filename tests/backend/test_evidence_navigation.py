@@ -109,3 +109,8 @@ class SnapshotTests(unittest.TestCase):
         r,h=self.collect({'alertname':'Test','namespace':'cattle-system','pod':'kube-state-metrics-abcd','container':'kube-state-metrics'})
         self.assertTrue(any(x['reason']=='EXPORTER_POD_NOT_VERIFIED'for x in r['missing']))
         self.assertFalse(any('/loki/'in c.args[1]for c in h.request.call_args_list))
+
+    def test_invalid_pod_does_not_widen_to_namespace_only(self):
+        r,h=self.collect({'alertname':'Test','namespace':'api','pod':'invalid pod!','container':'api'})
+        self.assertTrue(any(x['reason']=='UNSAFE_LABEL'for x in r['missing']))
+        self.assertFalse(any('/loki/'in c.args[1]for c in h.request.call_args_list))
