@@ -1,5 +1,8 @@
 """Generation-only bounds; historical REPORT_SCHEMA and stored evidence stay intact."""
 import copy
+import re
+import json
+import logging
 from core import REPORT_SCHEMA,validate,Failure
 
 # Printable ASCII excluding double quote/backslash: no mandatory JSON escaping.
@@ -38,12 +41,23 @@ def guided_report_schema(ids=None,issue_numbers=(0,)):
     return result
 
 
-def validate_generated_report(value,schema):
+def validate_generated_report(value,schema,reference_ids=None):
     """Reject field-cap fragments, never silently publish them as full findings."""
     validate(value,schema)
+    allowed=set(reference_ids) if reference_ids is not None else set()
     for key in (set(TEXT_LIMITS)-{'title'})|set(ARRAY_LIMITS):
         texts=value[key]if isinstance(value[key],list)else[value[key]]
         for text in texts:
-            if not text.rstrip().endswith(('.', '?', '!')) or text.rstrip().endswith('...'):
+            prose=text.rstrip()
+            # A complete sentence can precede one or more trailing citations.
+            # Interpret only known artifact IDs and only for validation: never
+            # rewrite, append punctuation or salvage/shorten the output.
+            trailing=re.search(r'(?:\s*\[E[0-9]{3}\])+$',prose)
+            if trailing:
+                refs=set(re.findall(r'E[0-9]{3}',trailing.group()))
+                if refs and refs<=allowed:prose=prose[:trailing.start()].rstrip()
+            if not prose.endswith(('.', '?', '!')) or prose.endswith('...'):
+                logging.getLogger(__name__).warning('generated_report_rejected %s',json.dumps({
+                    'field':key,'reason':'INCOMPLETE_SENTENCE','chars':len(text)},sort_keys=True))
                 raise Failure('INVALID_MODEL_SCHEMA')
     return value

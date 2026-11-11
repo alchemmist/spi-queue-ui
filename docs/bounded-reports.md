@@ -17,7 +17,8 @@ Hard field caps alone can force a decoder to close a JSON string mid-sentence.
 The model does not necessarily see response_format as prompt text. Therefore the
 prompt now explicitly targets complete sentences of at most8 words (facts10 plus
 citation, title6), well below the character ceilings. Generated prose must end in
-sentence punctuation and not an ellipsis; fragments fail validation rather than
+sentence punctuation (optionally followed by citations from the exact artifact
+allowlist) and not an ellipsis; fragments fail validation rather than
 being published. This uses no new paid repair. Historical reports are not
 revalidated under this generation-only completeness rule.
 
@@ -59,3 +60,23 @@ Stateful rollout still requires a fresh natural SPI-only logical-owner/native
 pending/inflight/paid drain. Push tests/builds but never deploys SPI. Explicit
 dispatch publishes an immutable image through deploy-to-socrat@v1 and the existing
 GitOps/Argo owner; no occupied worker replacement or manual inference probe.
+
+##19135: false punctuation rejection corrected
+
+The retained historical response finished normally (stop,294 completion tokens),
+passed the exact generation schema/caps and used complete sentences followed by
+known artifact citations in four non-fact fields. The old last-character guard
+rejected the closing bracket, incorrectly treating that as a fragment. Reproduce
+against the original stored response offline, without model/network calls.
+
+The validator now interprets ONLY allowlisted trailing `[E###]` groups while
+checking sentence punctuation; the returned object and evidence are unchanged.
+Unknown references, unpunctuated fragments, ellipses and arbitrary trailing text
+are not excused. Missing/empty context does not authorize citation interpretation.
+Facts retain the exact guided citation regex and allowlist validation. Character,
+list, token and paid-repair budgets are unchanged. New rejection logs expose only
+fixed field/reason/character-count metadata, never response/evidence content.
+The prompt also removes the inconsistent optional-period wording for facts.
+
+Original19135 stays red; the job already naturally completed19140, existing#16
+comment6806785355. This historical recovery is NOT acceptance of the new runtime.

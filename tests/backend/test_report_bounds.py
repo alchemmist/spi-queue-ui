@@ -123,3 +123,39 @@ class ReportCompletenessTests(unittest.TestCase):
         self.assertIn('at most 8 words',captured['task'])
         self.assertIn('NOT a target to fill',captured['task'])
         self.assertIn('COMPLETE sentence',captured['task'])
+
+@patch.dict('os.environ',{'SPI_TOKEN_ACCOUNTING_MODE':'byte-bound-v1'})
+class TrailingCitationCompletenessTests(unittest.TestCase):
+    def test_complete_sentence_then_multiple_allowed_citations_is_unchanged(self):
+        from report_bounds import validate_generated_report
+        for key in ('summary','match_reason','impact','alert_assessment','hypotheses','service_actions','monitoring_actions','missing_evidence'):
+            for prose in ('Capacity is constrained. [E001]','Inspect the disk! [E001][E002]','Is usage stable? [E001] [E002]'):
+                value=f.report();value[key]=[prose]if isinstance(value[key],list)else prose
+                before=copy.deepcopy(value)
+                self.assertIs(validate_generated_report(value,guided_report_schema(),['E001','E002']),value)
+                self.assertEqual(value,before)
+    def test_citation_does_not_make_fragment_or_unknown_reference_complete(self):
+        from report_bounds import validate_generated_report
+        for prose in ('Capacity is [E001]','Capacity is... [E001]','Capacity is... [E001][E002]',
+                      'Capacity is constrained. [E999]','Capacity is constrained. [E001] [E999]',
+                      'Capacity is constrained. [E001] arbitrary-tail','Capacity is constrained. [garbage]','[E001]'):
+            value=f.report();value['hypotheses']=[prose]
+            with self.assertRaises(Failure):validate_generated_report(value,guided_report_schema(),['E001','E002'])
+    def test_absent_or_empty_allowlist_does_not_authorize_citation_stripping(self):
+        from report_bounds import validate_generated_report
+        for ids in (None,[]):
+            value=f.report();value['hypotheses']=['Capacity is constrained. [E001]']
+            with self.assertRaises(Failure):validate_generated_report(value,guided_report_schema(),ids)
+    def test_real_model_path_accepts_allowed_citations_in_one_call(self):
+        m=Model(Mock(),'test-only',store=Mock());value=f.report();value['facts']=['Capacity is constrained [E001].']
+        value['hypotheses']=['Usage may rise. [E001]'];before=copy.deepcopy(value)
+        data={'evidence':{'artifact_context':{'index':[{'id':'E001'}]}}}
+        m.http.request.return_value={'choices':[{'finish_reason':'stop','message':{'content':json.dumps(value)}}]}
+        self.assertEqual(m.call('analysis',data,REPORT_SCHEMA,time.monotonic()+30),before)
+        self.assertEqual(m.http.request.call_count,1);m.store.reserve_llm.assert_called_once()
+    def test_rejection_diagnostic_contains_only_fixed_field_reason_and_count(self):
+        from report_bounds import validate_generated_report
+        value=f.report();value['impact']='private diagnostic fragment'
+        with self.assertLogs('report_bounds',level='WARNING')as logs:
+            with self.assertRaises(Failure):validate_generated_report(value,guided_report_schema())
+        self.assertNotIn('private diagnostic',str(logs.output));self.assertIn('INCOMPLETE_SENTENCE',str(logs.output))
