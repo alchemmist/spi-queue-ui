@@ -173,7 +173,7 @@ class RepairTests(unittest.TestCase):
             store=Store(tmp+'/db');key=store.enqueue(f.event())['job_id']
             OWNER_CONTEXT.binding=(key,'test-fence')
             bad=f.report();bad['facts']=['Unknown [E999]']
-            good=f.report();good['facts']=['Verified [E001]']
+            good=f.report();good['facts']=['Verified [E001].']
             data={'evidence':{'artifact_context':{'index':[{'id':'E001'}]}}}
             http=Mock();http.request.return_value={'choices':[{'message':{'content':json.dumps(bad)}}]}
             try:

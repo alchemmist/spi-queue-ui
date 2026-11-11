@@ -160,7 +160,7 @@ class ModelEvidenceTests(unittest.TestCase):
         from core import REPORT_SCHEMA
         from test_triage import report
         import time
-        bad=report();bad['facts']=['A guessed fact [E999]'];good=report();good['facts']=['An alert fired [E001]']
+        bad=report();bad['facts']=['A guessed fact [E999]'];good=report();good['facts']=['An alert fired [E001].']
         h=Mock();h.request.side_effect=[{'choices':[{'message':{'content':json.dumps(bad)}}]},{'choices':[{'message':{'content':json.dumps(good)}}]}]
         result=Model(h,'fake',min_interval=0,store=Mock()).call('analyze',{'evidence':{'artifact_context':{'index':[{'id':'E001'}]}}},REPORT_SCHEMA,time.monotonic()+20)
         self.assertEqual(result,good)

@@ -1,6 +1,6 @@
 """Generation-only bounds; historical REPORT_SCHEMA and stored evidence stay intact."""
 import copy
-from core import REPORT_SCHEMA
+from core import REPORT_SCHEMA,validate,Failure
 
 # Printable ASCII excluding double quote/backslash: no mandatory JSON escaping.
 # A compact ASCII report fits the original2500-token allowance even without
@@ -32,7 +32,18 @@ def guided_report_schema(ids=None,issue_numbers=(0,)):
             # xgrammar0.2.7 ignores maxLength when pattern is present.
             # Put the actual length bound IN the regex, including citations.
             prefix=ARRAY_LIMITS['facts'][1]-max(len(x)+2 for x in ids)-1
-            props['facts']['items']['pattern']='^'+ASCII+'{0,'+str(prefix)+'}'+r'\[(?:'+'|'.join(re.escape(x) for x in ids)+r')\]'+ASCII+'{0,1}$'
+            props['facts']['items']['pattern']='^'+ASCII+'{0,'+str(prefix)+'}'+r'\[(?:'+'|'.join(re.escape(x) for x in ids)+r')\]\.$'
         else:
             props['facts']['maxItems']=0
     return result
+
+
+def validate_generated_report(value,schema):
+    """Reject field-cap fragments, never silently publish them as full findings."""
+    validate(value,schema)
+    for key in (set(TEXT_LIMITS)-{'title'})|set(ARRAY_LIMITS):
+        texts=value[key]if isinstance(value[key],list)else[value[key]]
+        for text in texts:
+            if not text.rstrip().endswith(('.', '?', '!')) or text.rstrip().endswith('...'):
+                raise Failure('INVALID_MODEL_SCHEMA')
+    return value

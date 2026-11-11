@@ -13,6 +13,14 @@ New generations use a separate bounded schema (`backend/report_bounds.py`):
 - issue number is constrained to0 and the actual supplied candidates;
 - compact plain-ASCII prose is requested; full diagnostics remain in the evidence.
 
+Hard field caps alone can force a decoder to close a JSON string mid-sentence.
+The model does not necessarily see response_format as prompt text. Therefore the
+prompt now explicitly targets complete sentences of at most8 words (facts10 plus
+citation, title6), well below the character ceilings. Generated prose must end in
+sentence punctuation and not an ellipsis; fragments fail validation rather than
+being published. This uses no new paid repair. Historical reports are not
+revalidated under this generation-only completeness rule.
+
 Output allowance2500, thinking-disabled template, request/admission/owner limits,
 exact artifact-ID validation and the single existing durable citation repair
 remain unchanged. Every generated report is revalidated after decoding. A length

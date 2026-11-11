@@ -98,3 +98,28 @@ class ReportBoundsTests(unittest.TestCase):
         before=copy.deepcopy(data);body=m.payload('analysis',data,REPORT_SCHEMA)
         self.assertEqual(data,before)
         self.assertIn('private diagnostic '*1000,body['messages'][1]['content'])
+
+
+@patch.dict('os.environ',{'SPI_TOKEN_ACCOUNTING_MODE':'byte-bound-v1'})
+class ReportCompletenessTests(unittest.TestCase):
+    def test_cap_fragment_is_rejected_without_an_extra_paid_regeneration(self):
+        m=Model(Mock(),'test-only',store=Mock());value=f.report()
+        value['summary']='No application-level errors, pan'
+        m.http.request.return_value={'choices':[{'finish_reason':'stop','message':{'content':json.dumps(value)}}]}
+        with self.assertRaisesRegex(Failure,'LLM_INVALID_MODEL_SCHEMA'):
+            m.call('analysis',{},REPORT_SCHEMA,time.monotonic()+30)
+        self.assertEqual(m.http.request.call_count,1);m.store.finish_llm.assert_called_once()
+
+    def test_ellipsis_or_open_parenthetical_is_not_a_complete_generated_report(self):
+        from report_bounds import validate_generated_report
+        for text in ('The pod itself (','Delivery failed...', 'Delivery failed'):
+            value=f.report();value['impact']=text
+            with self.assertRaises(Failure):validate_generated_report(value,guided_report_schema())
+
+    def test_prompt_contains_real_headroom_not_an_invisible_schema_reference(self):
+        m=Model(Mock(),'test-only',store=Mock());captured={}
+        def call(task,data,schema,deadline):captured['task']=task;return f.report()
+        m.call=call;m.analyze(f.event(),{'candidates':[]},{})
+        self.assertIn('at most 8 words',captured['task'])
+        self.assertIn('NOT a target to fill',captured['task'])
+        self.assertIn('COMPLETE sentence',captured['task'])
