@@ -28,10 +28,28 @@ def redact(value,known=()):
     return re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b','[REDACTED_EMAIL]',value)
 
 def prepare_bundle(event,evidence,artifacts,links=(),known=()):
-    records=[];parts=[];remaining=MAX_BUNDLE
+    records=[];parts=[];remaining=MAX_BUNDLE;skipped=[]
     for n,item in enumerate(artifacts):
         safe=redact(item,known);content=encoded(safe.get('content'));original=len(content)
-        take=min(MAX_ARTIFACT,remaining);stored=content[:take];remaining-=len(stored)
+        take=min(MAX_ARTIFACT,remaining//max(1,len(artifacts)-n))
+        if take<4:
+            skipped.append({'source':str(safe.get('name','artifact'))[:100],'reason':'ARTIFACT_BUNDLE_BUDGET'})
+            continue
+        stored=content[:take]
+        if len(stored)<original:
+            # Never call a chopped JSON string a JSON snapshot. Retain a valid
+            # envelope with original digest/size and explicitly bounded excerpt.
+            base={'representation':'bounded_json_excerpt','truncated':True,
+                  'sanitized_chars':original,'sanitized_sha256':hashlib.sha256(content.encode()).hexdigest(),
+                  'limitation':'Full sanitized document exceeded the artifact/bundle budget. Excerpt is text, not a complete upstream response.'}
+            lo,hi=0,len(stored)
+            while lo<hi:
+                mid=(lo+hi+1)//2
+                if len(encoded({**base,'excerpt':content[:mid]}))<=take:lo=mid
+                else:hi=mid-1
+            stored=encoded({**base,'excerpt':content[:lo]})
+            if len(stored)>take:stored='null' if take>=4 else ''
+        remaining-=len(stored)
         aid='E'+str(n+1).zfill(3);sha=hashlib.sha256(stored.encode()).hexdigest()
         row={'id':aid,'name':re.sub(r'[^A-Za-z0-9_.-]','_',str(safe.get('name','evidence.json')))[:100],
              'sha256':sha,'source':safe.get('source',{}),'stored_chars':len(stored),'sanitized_chars':original,
@@ -42,7 +60,7 @@ def prepare_bundle(event,evidence,artifacts,links=(),known=()):
                           'sha256':sha,'text':stored[offset:offset+PART_SIZE]})
     manifest={'format':'socrat-evidence-v2','event_key':event['event_key'],'status':event['status'],
               'incident_start':event['startsAt'],'incident_end':event.get('endsAt'),'window':evidence.get('window'),
-              'artifacts':records,'missing':redact(evidence.get('missing',[]),known),'links':redact(list(links),known),
+              'artifacts':records,'missing':redact(evidence.get('missing',[])+skipped,known),'links':redact(list(links),known),
               'limits':{'artifact_chars':MAX_ARTIFACT,'bundle_chars':MAX_BUNDLE,'comment_payload_chars':PART_SIZE},
               'redaction_policy':'Known credentials, credential fields/patterns, cookies, PEM private keys, URL passwords and emails removed. Internal topology retained. Original data is bounded, not an exhaustive dump.'}
     manifest_text=encoded(manifest)
@@ -159,8 +177,9 @@ def storage_markdown(objects):
 
     try:manifest=json.loads(objects[0][1].decode('ascii'))
     except (ValueError,UnicodeError):return text
+    text+=navigation_markdown(manifest)
     keys={key.rsplit('/',1)[1]:key for key,raw in objects}
-    graphs=[]
+    graphs=[];graph_link_budget=12000
     for row in manifest.get('artifacts',[]):
         if row.get('mime_type')!='image/png' or row.get('source',{}).get('kind')!='grafana_panel_png':continue
         source=row['source'];name=row['id']+'-'+row['name']
@@ -172,6 +191,49 @@ def storage_markdown(objects):
             start=datetime.fromtimestamp(source['from_ms']/1000,timezone.utc).isoformat()
             end=datetime.fromtimestamp(source['to_ms']/1000,timezone.utc).isoformat()
         except (KeyError,TypeError,ValueError,OverflowError):raise Failure('STORAGE_INTEGRITY') from None
-        graphs.append('- ['+title+' (PNG)]('+origin+'/'+keys[name]+') — '+start+' to '+end+'.')
+        dashboard=grafana_panel_url(source)
+        link=' [Open Grafana panel]('+dashboard+')' if len(dashboard)<=graph_link_budget else ' Panel URL omitted by publication budget; see manifest.'
+        if len(dashboard)<=graph_link_budget:graph_link_budget-=len(dashboard)
+        graphs.append('- ['+title+' (PNG)]('+origin+'/'+keys[name]+') — '+start+' to '+end+'.'+link)
     if graphs:text+='\n\n## Graphs\nPrivate PNG evidence; sign in through the existing Evidence/Authentik flow. Images are for human review, not model input.\n'+'\n'.join(graphs)
     return text
+
+
+def navigation_markdown(manifest):
+    """Human navigation is deterministic metadata, never model-generated prose."""
+    from urllib.parse import urlsplit
+    lines=['','## Grafana and Loki navigation'];budget=12000;seen=set();omitted=0
+    for link in manifest.get('links',[])[:18]:
+        url=link.get('url','');p=urlsplit(url)
+        if p.scheme!='https' or p.netloc!='grafana.socrat.alchemmist.xyz' or (p.path!='/explore'and re.fullmatch(r'/d/[A-Za-z0-9_-]{1,64}/_',p.path)is None) or p.fragment:
+            omitted+=1;continue
+        if url in seen:continue
+        if len(url)>budget:omitted+=1;continue
+        seen.add(url);budget-=len(url)
+        title=re.sub(r'[\\`\[\]<>\r\n]',' ',str(link.get('title','Grafana Explore')))[:160]
+        lines.append('- ['+title+']('+url+')')
+    if omitted:lines.append('- '+str(omitted)+' navigation links omitted by validation/publication budget; see manifest.')
+    if not seen:lines.append('- No validated Explore link was collected; this is not evidence of health.')
+    gaps=manifest.get('missing',[])
+    if gaps:
+        lines+=['','## Evidence gaps','Missing/failed/empty reads are not proof of recovery. See the manifest for query/window details.']
+        for item in gaps[:24]:
+            source=re.sub(r'[^A-Za-z0-9_.-]','_',str(item.get('source','unknown')))[:80]
+            reason=re.sub(r'[^A-Za-z0-9_.-]','_',str(item.get('reason','unknown')))[:100]
+            lines.append('- `'+source+'`: `'+reason+'`')
+        if len(gaps)>24:lines.append('- Additional gaps are listed in the manifest.')
+    return repair_markdown_links('\n'.join(lines))
+
+
+def grafana_panel_url(source):
+    from urllib.parse import urlencode,quote
+    uid=source.get('dashboard_uid');panel=source.get('panel_id')
+    if not isinstance(uid,str)or re.fullmatch(r'[A-Za-z0-9_-]{1,64}',uid)is None or type(panel)is not int or panel<1:
+        raise Failure('STORAGE_INTEGRITY')
+    lo,hi=source.get('from_ms'),source.get('to_ms')
+    if type(lo)is not int or type(hi)is not int or not 0<=lo<hi:raise Failure('STORAGE_INTEGRITY')
+    params=[('orgId','1'),('from',str(lo)),('to',str(hi)),('viewPanel',str(panel)),('timezone','utc'),('forceLogin','true')]
+    for k,v in sorted(source.get('variables',{}).items()):
+        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,63}',k)is None or SECRET_KEY.search(k):raise Failure('STORAGE_INTEGRITY')
+        for value in(v if isinstance(v,list)else[v]):params.append(('var-'+k,str(value)))
+    return 'https://grafana.socrat.alchemmist.xyz/d/'+quote(uid,safe='')+'/_?'+urlencode(params)

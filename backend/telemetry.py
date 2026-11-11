@@ -584,6 +584,12 @@ class TelemetryCollector:
                                 'No validated namespace, pod, service, systemd unit, or host selector was available, '
                                 'so raw logs were not queried.' + NOT_HEALTH,
                                 rejected=self._rejected))
+        for plan in plans:
+            baseline=self._log_query(plan,'baseline','',CONTEXT_LINE_LIMIT,'backward',window['start'],window['end'],
+                                     'Loki all-level log sample',artifacts,links,seen,public,missing)
+            for line in baseline:
+                for trace_id in trace_ids_in_text(line.get('line','')):
+                    self._remember_trace_id(trace_id,'log',discovered,missing)
         for kind, line_filter, limit, title in (
                 ('error', ERROR_LINE_FILTER, ERROR_LINE_LIMIT, 'Loki error logs'),
                 ('stack', STACK_LINE_FILTER, STACK_LINE_LIMIT, 'Loki stack lines')):
@@ -622,6 +628,10 @@ class TelemetryCollector:
                 namespace=None
                 missing.append(_gap('log_scope','JOB_POD_NOT_VERIFIED','Exporter pod labels were not used as affected job pods. Raw job logs were not queried without a verified pod.'))
 
+        if pod and any(x in pod for x in ('kube-state-metrics','node-exporter')) and not evidence.get('verified_workload_pod'):
+            namespace=None;pod=None;container=None;service=None
+            missing.append(_gap('log_scope','EXPORTER_POD_NOT_VERIFIED',
+                                'Scrape exporter identity was not verified as an affected workload. No broader log selector was substituted.'))
         self._rejected = [{'label': item['label'], 'reason': item['reason']} for item in rejected]
         for item in rejected:
             missing.append(_gap('log_scope', item['reason'],
@@ -726,6 +736,11 @@ class TelemetryCollector:
                                        query=query, start=start, end=end, limit=limit, direction=direction)
         self._maybe_link(links, seen, public, title + ' (' + plan['kind'] + ')', 'loki', 'expr', query, start, end)
         if error or payload is None:
+            receipt={'status':'failed','reason':error or 'NO_RESPONSE','query':query,
+                     'window':self._bounds(start,end),'parameters':dict(params),'collected_at':int(time.time()),
+                     'limitation':'No response snapshot was available. This is not an empty successful query.'}
+            artifacts.append(self._artifact('loki-'+kind+'-'+plan['kind'],'loki-'+kind+'-receipt-'+plan['kind']+'.json',
+                query,LOKI_RANGE_PATH,'loki',{'start':start,'end':end},receipt,{'system':'loki','query':query,'start':start,'end':end,'status':'failed'}))
             return []
         data = payload.get('data') if isinstance(payload.get('data'), dict) else None
         if data is None or data.get('resultType') != 'streams':
@@ -767,6 +782,7 @@ class TelemetryCollector:
         limit_reached = len(returned) >= limit
         truncated = limit_reached or line_truncated or len(returned) > len(stored)
         content = {
+            'response':payload,'response_representation':'bounded_upstream_json','collected_at':int(time.time()),
             'kind': 'loki_' + kind + '_logs',
             'scope': plan['kind'],
             'query': query,
@@ -790,7 +806,7 @@ class TelemetryCollector:
             'query': query, 'start': start, 'end': end, 'limit': limit, 'direction': direction,
             'truncated': truncated, 'returned_lines': len(returned), 'stored_lines': len(stored),
         }
-        name = 'loki-' + ('error-logs' if kind == 'error' else 'stack-lines') + '-' + plan['kind'] + '.json'
+        name = 'loki-' + ('error-logs' if kind == 'error' else 'stack-lines' if kind=='stack' else 'baseline-logs') + '-' + plan['kind'] + '.json'
         artifacts.append(self._artifact('loki-' + kind + '-' + plan['kind'], name, query, LOKI_RANGE_PATH, 'loki',
                                         {'start': start, 'end': end}, content, source))
         if not stored:
@@ -855,6 +871,7 @@ class TelemetryCollector:
                     break
             truncated = len(stored) >= CONTEXT_LINE_LIMIT or any(line['line_truncated'] for line in stored)
             content = {
+                'response':payload,'response_representation':'bounded_upstream_json','collected_at':int(time.time()),
                 'kind': 'loki_context', 'scope': item['kind'], 'query': query,
                 'anchor_epoch': item['center'],
                 'window': {'start': start, 'end': end, 'requested_start': item['center'] - CONTEXT_RADIUS_SECONDS,

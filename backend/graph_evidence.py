@@ -21,19 +21,36 @@ MIN_FREE_BYTES = 256 * 1024 * 1024
 HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
+def _private_fd(fd, directory):
+    info=os.fstat(fd)
+    expected=stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    # Kubelet fsGroup can add group permissions on a previously private PVC.
+    # Tighten only service-owned, service-group, non-world-accessible objects.
+    # Never follow links, chown foreign data, accept world access, or relax checks.
+    if not expected or info.st_uid!=os.getuid() or info.st_mode & 0o007:
+        raise GraphError('GRAPH_CHECKPOINT_INVALID')
+    if info.st_mode & 0o077:
+        if info.st_gid!=os.getegid():raise GraphError('GRAPH_CHECKPOINT_INVALID')
+        os.fchmod(fd,0o700 if directory else 0o600)
+    info=os.fstat(fd)
+    if info.st_mode & 0o077:raise GraphError('GRAPH_CHECKPOINT_INVALID')
+    return info
+
+
 def _directory(path):
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-        raise GraphError('GRAPH_CHECKPOINT_INVALID')
+    try:fd=os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    except OSError:raise GraphError('GRAPH_CHECKPOINT_INVALID') from None
+    try:_private_fd(fd,True)
+    finally:os.close(fd)
     return path
 
 
 def _read(path, limit):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd, 'rb') as stream:
-        info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077 or info.st_size > limit:
+        info = _private_fd(stream.fileno(),False)
+        if info.st_size > limit:
             raise GraphError('GRAPH_CHECKPOINT_INVALID')
         result = stream.read(limit+1)
     if len(result) > limit:
@@ -86,6 +103,7 @@ def collect(event, client, *, deadline=None):
         _immutable(capture, canonical({'specs': specs, 'observed_at': observed}).encode('ascii'))
     artifacts, missing = [], []
     for spec in specs:
+        request=None
         try:
             remaining = 20 if deadline is None else min(20, deadline-time.monotonic())
             request = resolve(spec, event['labels'], starts_at=event['startsAt'], observed_at=observed,
@@ -117,7 +135,11 @@ def collect(event, client, *, deadline=None):
                               'reference': {'event_key': event_key, 'render_digest': request['digest']}})
         except (GraphError, OSError, ValueError, KeyError) as exc:
             if isinstance(exc,GraphError) and exc.code=='GRAPH_CAPTURE_DEFERRED':raise
-            missing.append({'source': 'graph:'+spec['id'], 'reason': exc.code if isinstance(exc, GraphError) else 'GRAPH_CAPTURE_FAILED'})
+            gap={'source':'graph:'+spec['id'],'reason':exc.code if isinstance(exc,GraphError)else 'GRAPH_CAPTURE_FAILED'}
+            if request:
+                gap['panel']={k:request[k]for k in ('dashboard_uid','panel_id','variables','from_ms','to_ms')}
+                gap['panel']['title']=spec['title']
+            missing.append(gap)
     return artifacts, missing
 
 
@@ -131,6 +153,10 @@ def attach(bundle, artifacts, missing=()):
     bundle['model_context'] = copy.deepcopy(bundle['model_context'])
     manifest = bundle['manifest']
     manifest['missing'] += list(missing)
+    from evidence_bundle import grafana_panel_url
+    for gap in missing:
+        if gap.get('panel'):
+            manifest['links'].append({'title':gap['panel']['title']+' (capture unavailable)', 'url':grafana_panel_url(gap['panel'])})
     if not artifacts:
         return bundle
     manifest['format'] = 'socrat-evidence-v3'
