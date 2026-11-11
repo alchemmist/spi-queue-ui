@@ -25,8 +25,9 @@ class StoragePermanent(Exception):
 class StorageConflict(StoragePermanent):
     def __init__(self): Exception.__init__(self, 'S3_CONFLICT')
 class StorageTransient(Exception):
-    def __init__(self, retry_after=None):
+    def __init__(self, retry_after=None, *, reason="UNSPECIFIED"):
         self.retry_after = retry_after
+        self.reason = reason if reason in {"UNSPECIFIED","DNS_RESOLUTION","TIMEOUT","HTTP_TRANSPORT","OPERATION_DEADLINE","HTTP_408","HTTP_429","HTTP_5XX","INCOMPLETE_READ","READBACK_NOT_READY"} else "UNSPECIFIED"
         super().__init__('S3_TRANSIENT')
 def expire(sock):
     try:
@@ -126,7 +127,7 @@ class HTTPConnection(DeadlineConnection, http.client.HTTPConnection):
         try: addresses = results.get(timeout=max(0, deadline - time.monotonic()))
         except queue.Empty: raise TimeoutError('resolution deadline') from None
         if time.monotonic() >= deadline: raise TimeoutError('resolution deadline')
-        if not addresses: raise OSError('resolution failed')
+        if not addresses: raise socket.gaierror(socket.EAI_AGAIN,'resolution failed')
         self.budget -= time.monotonic() - started
         if self.budget <= 0: raise TimeoutError('resolution deadline')
         def create(address, timeout, source_address):
@@ -206,20 +207,21 @@ class S3Evidence:
 
     def _request(self, method, key, payload, deadline):
         remaining = deadline - time.monotonic()
-        if remaining <= 0: raise StorageTransient()
+        if remaining <= 0: raise StorageTransient(reason="OPERATION_DEADLINE")
         path = '/' + BUCKET + '/' + key
         headers = sign(method, ORIGIN + path, self._access, self._secret, payload=payload)
         if method == 'PUT': headers['If-None-Match'] = '*'
         headers['Connection'] = 'close'
         try:
             result = (self._transport or self._wire)(method, path, headers, payload, remaining)
-        except (OSError, http.client.HTTPException):
-            raise StorageTransient() from None
-        if time.monotonic() >= deadline: raise StorageTransient()
+        except (OSError, http.client.HTTPException) as exc:
+            reason="DNS_RESOLUTION" if isinstance(exc,socket.gaierror) else "TIMEOUT" if isinstance(exc,TimeoutError) else "HTTP_TRANSPORT"
+            raise StorageTransient(reason=reason) from None
+        if time.monotonic() >= deadline: raise StorageTransient(reason="OPERATION_DEADLINE")
         status, headers, body = result
         if not isinstance(body, bytes) or len(body) > MAX_BYTES: raise StoragePermanent()
         if status in (408, 429) or 500 <= status <= 599:
-            raise StorageTransient(retry_after(next((v for k,v in headers.items() if k.lower() == 'retry-after'), None)))
+            raise StorageTransient(retry_after(next((v for k,v in headers.items() if k.lower() == 'retry-after'), None)),reason='HTTP_5XX' if status>=500 else 'HTTP_'+str(status))
         if status not in (200, 201, 204, 404, 409, 412): raise StoragePermanent()
         return status, body
 
@@ -229,7 +231,7 @@ class S3Evidence:
         deadline = time.monotonic() + self._seconds
         digest = hashlib.sha256(exact_bytes).hexdigest()
         def verify(status, body):
-            if status != 200: raise StorageTransient()
+            if status != 200: raise StorageTransient(reason="READBACK_NOT_READY")
             if len(body) != len(exact_bytes) or hashlib.sha256(body).hexdigest() != digest: raise StorageConflict()
             return {'bucket': BUCKET, 'key': key, 'sha256': digest, 'size': len(body), 'verified': True}
         status, body = self._request('GET', key, b'', deadline)

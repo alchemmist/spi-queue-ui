@@ -29,6 +29,7 @@ def log_event(event, level='info', **fields):
         if key in record:
             value = record[key]
             valid = (isinstance(value, str) and bool(re.fullmatch(r'[A-Z][A-Z0-9_]{0,79}', value))) if key == 'code' else value in {'match', 'collect', 'analyze', 'publish', 'sign', 'installation', 'mint', 'publish_secret', 'bootstrap'}
+            if key=='phase' and value in {'S3_UNSPECIFIED','S3_DNS_RESOLUTION','S3_TIMEOUT','S3_HTTP_TRANSPORT','S3_OPERATION_DEADLINE','S3_HTTP_408','S3_HTTP_429','S3_HTTP_5XX','S3_INCOMPLETE_READ','S3_READBACK_NOT_READY'}:valid=True
             if not valid:
                 record[key] = 'REDACTED'
     if 'n8n_execution_id' in record and not (isinstance(record['n8n_execution_id'],str) and re.fullmatch(r'[1-9][0-9]{0,14}',record['n8n_execution_id'])):
@@ -99,7 +100,7 @@ class Engine:
                     if restarted is not None:
                         log_event('snapshot_revalidated',stage='match',code=exc.code)
                         return restarted
-                if exc.code in {'LLM_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','MATCH_PROGRESS_DEFERRED','GRAPH_CAPTURE_DEFERRED'}:
+                if exc.code in {'LLM_ADMISSION_DEFERRED','GITHUB_READ_TIMEOUT','GITHUB_READ_NETWORK_ERROR','MATCH_PROGRESS_DEFERRED','GRAPH_CAPTURE_DEFERRED'} or (name=='publish' and exc.code=='STORAGE_TRANSIENT'):
                     try:
                         result=self.store.owners.finish(owner,True,time.time(),exc.retry_after,code=exc.code)
                         log_event('stage_deferred','info' if exc.code=='MATCH_PROGRESS_DEFERRED' else 'warning',stage=name,code=exc.code)
@@ -286,7 +287,9 @@ class Engine:
             if i<len(progress['verified']):continue
             if self.storage is None:raise Failure('STORAGE_CONFIG')
             try:verified=self.storage.ensure_object(object_key,raw)
-            except StorageTransient as exc:raise Failure('STORAGE_TRANSIENT',exc.retry_after) from None
+            except StorageTransient as exc:
+                log_event('storage_retry_pending','warning',stage='publish',code='STORAGE_TRANSIENT',phase='S3_'+getattr(exc,'reason','UNSPECIFIED'))
+                raise Failure('STORAGE_TRANSIENT',exc.retry_after) from None
             except StorageConflict:raise Failure('STORAGE_CONFLICT') from None
             except StoragePermanent:raise Failure('STORAGE_PERMANENT') from None
             if verified!=binding[i]:raise Failure('STORAGE_INTEGRITY')

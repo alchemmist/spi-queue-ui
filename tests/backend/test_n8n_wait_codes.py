@@ -44,7 +44,9 @@ const base={contract:1,status:'deferred',job_id:'a'.repeat(64),execution_id:'167
 function run(x){return select([{json:x}],{id:'16795'});}
 for(const code of input.codes){
  for(const stage of ['match','collect','analyze','publish']){
-  const x={...base,code,stage};assert.deepStrictEqual(run(x),[{json:x}]);
+  const x={...base,code,stage};
+  if(code==='STORAGE_TRANSIENT' && stage!=='publish') assert.throws(()=>run(x),/INVALID_SPI_WAIT_CODE/);
+  else assert.deepStrictEqual(run(x),[{json:x}]);
  }
 }
 for(const code of ['WRITE_NEEDS_REVIEW','LLM_UPSTREAM_TIMEOUT','UPSTREAM_NETWORK_ERROR','INVALID_MODEL_SCHEMA','UNKNOWN'])

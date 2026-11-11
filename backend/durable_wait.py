@@ -181,7 +181,9 @@ class WaitOwners:
             return None, dict(row)
 
     def finish(self, owner, deferred, now, retry_after=None, code="LLM_ADMISSION_DEFERRED"):
-        if deferred and code not in {"LLM_ADMISSION_DEFERRED", "GITHUB_READ_TIMEOUT", "GITHUB_READ_NETWORK_ERROR", "MATCH_PROGRESS_DEFERRED", "GRAPH_CAPTURE_DEFERRED"}:
+        if deferred and code not in {"LLM_ADMISSION_DEFERRED", "GITHUB_READ_TIMEOUT", "GITHUB_READ_NETWORK_ERROR", "MATCH_PROGRESS_DEFERRED", "GRAPH_CAPTURE_DEFERRED", "STORAGE_TRANSIENT"}:
+            raise Failure("UNSAFE_WAIT_ERROR")
+        if deferred and code=="STORAGE_TRANSIENT" and owner["stage"]!="publish":
             raise Failure("UNSAFE_WAIT_ERROR")
         import json
         with self.store.db() as c:
