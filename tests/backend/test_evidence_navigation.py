@@ -1,12 +1,12 @@
 """Human evidence navigation and snapshots, no live observability or inference."""
-import copy,json,os,stat,unittest
+import json,os,stat,unittest
 from pathlib import Path
 from unittest.mock import Mock,patch
 from urllib.parse import urlsplit,parse_qs
 from evidence_bundle import prepare_bundle,storage_objects,storage_markdown,navigation_markdown,grafana_panel_url
 from telemetry import grafana_explore_url,TelemetryCollector
 from test_triage import event
-from test_graph_evidence import GraphEvidenceTests
+import test_graph_evidence as fixture
 import graph_evidence as graphs
 from graph_contract import GraphError
 
@@ -23,7 +23,9 @@ class NavigationTests(unittest.TestCase):
 
     def test_navigation_rejects_external_origin_userinfo_fragment_and_host_suffix(self):
         for url in ('https://evil.example/explore?x=1','https://grafana.socrat.alchemmist.xyz.evil/explore?x=1',
-                    'https://user@grafana.socrat.alchemmist.xyz/explore?x=1','https://grafana.socrat.alchemmist.xyz/explore?x=1#bad'):
+                    'https://user@grafana.socrat.alchemmist.xyz/explore?x=1','https://grafana.socrat.alchemmist.xyz/explore?x=1#bad',
+                    'https://grafana.socrat.alchemmist.xyz/explore?x=1) [bad](https://evil.example)',
+                    'https://grafana.socrat.alchemmist.xyz/explore?x=1\nbad'):
             self.assertNotIn(']('+url+')',navigation_markdown({'links':[{'title':'bad','url':url}]}))
 
     def test_panel_url_keeps_absolute_png_range_and_variables(self):
@@ -50,7 +52,7 @@ class NavigationTests(unittest.TestCase):
 
 
 class PrivateSpoolTests(unittest.TestCase):
-    setUp=GraphEvidenceTests.setUp
+    setUp=fixture.GraphEvidenceTests.setUp
 
     def test_fsgroup_modes_are_tightened_without_re_render_or_content_change(self):
         captured,_=graphs.collect(self.event,self.client);ref=captured[0]['reference'];root=graphs.ARTIFACT_ROOT;d=root/ref['event_key'];png=d/(ref['render_digest']+'.png')

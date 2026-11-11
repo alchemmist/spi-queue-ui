@@ -204,7 +204,11 @@ def navigation_markdown(manifest):
     from urllib.parse import urlsplit
     lines=['','## Grafana and Loki navigation'];budget=12000;seen=set();omitted=0
     for link in manifest.get('links',[])[:18]:
-        url=link.get('url','');p=urlsplit(url)
+        url=link.get('url','')
+        if not isinstance(url,str)or any(ord(c)<33 or c in '<>()[]\\'for c in url):
+            omitted+=1;continue
+        try:p=urlsplit(url)
+        except ValueError:omitted+=1;continue
         if p.scheme!='https' or p.netloc!='grafana.socrat.alchemmist.xyz' or (p.path!='/explore'and re.fullmatch(r'/d/[A-Za-z0-9_-]{1,64}/_',p.path)is None) or p.fragment:
             omitted+=1;continue
         if url in seen:continue
