@@ -109,14 +109,15 @@ def validate(value, schema):
             raise Failure('INVALID_MODEL_SCHEMA')
         for k,s in schema['properties'].items(): validate(value[k], s)
     elif typ == 'array':
-        if not isinstance(value, list) or len(value) > 30: raise Failure('INVALID_MODEL_SCHEMA')
+        if not isinstance(value, list) or len(value) > min(30,schema.get('maxItems',30)): raise Failure('INVALID_MODEL_SCHEMA')
         for v in value: validate(v, schema['items'])
     elif typ == 'string':
-        if not isinstance(value,str) or not value.strip() or len(value)>8000: raise Failure('INVALID_MODEL_SCHEMA')
+        if not isinstance(value,str) or not value.strip() or len(value)>min(8000,schema.get('maxLength',8000)): raise Failure('INVALID_MODEL_SCHEMA')
+        if 'pattern' in schema and re.fullmatch(schema['pattern'],value) is None:raise Failure('INVALID_MODEL_SCHEMA')
         # Fail closed on non-English scripts rather than publishing untranslated prose.
         if any(ord(c)>127 and c.isalpha() for c in value): raise Failure('NON_ENGLISH_MODEL_OUTPUT')
     elif typ == 'integer':
-        if type(value) is not int or value < schema.get('minimum', 0): raise Failure('INVALID_MODEL_SCHEMA')
+        if type(value) is not int or value < schema.get('minimum', 0) or ('maximum' in schema and isinstance(value,int) and value>schema['maximum']): raise Failure('INVALID_MODEL_SCHEMA')
     if 'enum' in schema and value not in schema['enum']: raise Failure('INVALID_MODEL_SCHEMA')
     return value
 

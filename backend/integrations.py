@@ -226,16 +226,12 @@ class Model:
             return v
         guided=schema
         if schema is REPORT_SCHEMA:
-            ids=self.analysis_reference_ids(data)
-            if ids is not None:
-                # Constrain missing/invented-example citations before generation.
-                # Post-validation below still rejects EVERY unknown ID; this
-                # pattern does not replace that stricter reference check.
-                facts={'type':'array','items':{'type':'string'}}
-                if ids:
-                    facts['items']['pattern']=r'[\s\S]*\[(?:'+'|'.join(ids)+r')\][\s\S]*'
-                else:facts['maxItems']=0
-                guided={**schema,'properties':{**schema['properties'],'facts':facts}}
+            # Bound prose BEFORE generation; do not buy longer completions or
+            # truncate/salvage an invalid response after paying for it.
+            from report_bounds import guided_report_schema
+            match=data.get('preliminary_match',{}) if isinstance(data,dict) else {}
+            numbers=[x['number'] for x in match.get('candidates',[]) if isinstance(x,dict) and type(x.get('number')) is int and 0<x['number']<=2147483647] if isinstance(match,dict) else []
+            guided=guided_report_schema(self.analysis_reference_ids(data),numbers)
         return {'model':'qwen3.8-27b','messages':[{'role':'system','content':SYSTEM},
                 {'role':'user','content':task+'\nUNTRUSTED EVIDENCE JSON:\n'+json.dumps(redact(data),ensure_ascii=False)}],
                 'temperature':0.1,'max_tokens':768 if schema is MATCH_SCHEMA else 2500,
@@ -347,6 +343,8 @@ class Model:
                             'artifact_count':len(ids),'fact_count':len(value['facts']),
                             'missing_reference_fact_count':missing,'unknown_reference_count':unknown},sort_keys=True))
                         raise Failure('INVALID_EVIDENCE_REFERENCE')
+                if schema is REPORT_SCHEMA:
+                    validate(value,body['response_format']['json_schema']['schema'])
                 return value
             except (KeyError,IndexError,TypeError,ValueError,Failure) as exc:
                 last=exc.code if isinstance(exc,Failure) else 'INVALID_MODEL_SCHEMA'
@@ -503,7 +501,7 @@ class Model:
         if bundle:evidence['artifact_context']=bundle['model_context']
         evidence['queries']=[{**q,'result':metric_summary(q.get('result',{}))} if q.get('source') in ('prometheus_metrics','loki_error_frequency','host_log_error_frequency','loki_rule_metric') else q for q in evidence.get('queries',[])]
         evidence['rule_definitions']=[{k:v for k,v in r.items() if k!='alerts'} for r in evidence.get('rule_definitions',[])]
-        task='Write an evidence-grounded SPI report. Revalidate preliminary matching using diagnostics; choose 0 if a distinct cause is supported. Assess alert noise and actionable tuning separately from service defects. Include safe evidence references in facts; never fabricate a source path or threshold. Scrape exporter pods are not necessarily affected workloads: use job_name or systemd unit when present. Zero error counts or absent series never confirm no service degradation; Every verified fact MUST cite at least one existing artifact ID from the exact artifact_context.index allowlist; never invent an evidence ID. Use artifact IDs when citing collected logs, traces, deployment metadata and metric samples. Explain excerpt/collection limits; never claim all stored bytes were reviewed. Missing logs do not prove health. OCI revision labels are build claims, not reproducible-build proof; main-branch runbooks are not deployed code.'
+        task='Return one compact JSON object without pretty-print whitespace or escaped ASCII. Write a concise triage brief, not an exhaustive narrative: at most 3 facts and 2 entries in each other list, end each fact with its citation (optional final period), obey every schema length limit, use plain ASCII and single quotes instead of double quotes inside prose. Choose the highest-value evidence and actions; full diagnostics remain in immutable evidence. State uncertainty rather than omit it or assert recovery. Write an evidence-grounded SPI report. Revalidate preliminary matching using diagnostics; choose 0 if a distinct cause is supported. Assess alert noise and actionable tuning separately from service defects. Include safe evidence references in facts; never fabricate a source path or threshold. Scrape exporter pods are not necessarily affected workloads: use job_name or systemd unit when present. Zero error counts or absent series never confirm no service degradation; Every verified fact MUST cite at least one existing artifact ID from the exact artifact_context.index allowlist; never invent an evidence ID. Use artifact IDs when citing collected logs, traces, deployment metadata and metric samples. Explain excerpt/collection limits; never claim all stored bytes were reviewed. Missing logs do not prove health. OCI revision labels are build claims, not reproducible-build proof; main-branch runbooks are not deployed code.'
         if match.get('routing'):
             task+=' This is fixed organizational workstream routing, NOT proof of a shared root cause. Keep independent failures separate in your findings. You may choose issue_number=0 when no shared cause is established; the report will still be filed under the managed topic without creating an issue. Do not infer root cause from the topic title.'
         original={'alert':event,'preliminary_match':match,'evidence':evidence}

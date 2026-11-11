@@ -26,7 +26,10 @@ class ReferenceContractTests(unittest.TestCase):
         schema = body['response_format']['json_schema']['schema']
         pattern = schema['properties']['facts']['items']['pattern']
         self.assertIsNotNone(re.fullmatch(pattern, 'A bounded observation [E002].'))
-        self.assertIsNotNone(re.fullmatch(pattern, 'A\nmultiline observation [E007].'))
+        # Generation is now single-line bounded ASCII to avoid mandatory
+        # JSON escaping. Citation support itself remains unchanged.
+        self.assertIsNone(re.fullmatch(pattern, 'A\nmultiline observation [E007].'))
+        self.assertIsNotNone(re.fullmatch(pattern, 'A single-line observation [E007].'))
         for text in ('An uncited observation.', 'Invented reference [E003].'):
             self.assertIsNone(re.fullmatch(pattern, text))
         self.assertEqual(REPORT_SCHEMA, before)
