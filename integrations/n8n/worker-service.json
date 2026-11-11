@@ -1,0 +1,11 @@
+{
+  "contract": 1,
+  "namespace": "automation",
+  "name": "spi-triage",
+  "uid": "3dcd444b-0105-407e-8172-4acd0faed4f2",
+  "cluster_ip": "10.43.194.185",
+  "port": 8080,
+  "selector": {
+    "app": "spi-triage"
+  }
+}

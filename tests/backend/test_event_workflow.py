@@ -52,7 +52,7 @@ class EventWorkflowTests(unittest.TestCase):
                                ('Publish SPI', 'publish')]:
             node = nodes[name]
             p = node['parameters']
-            self.assertEqual(p['url'], 'http://spi-triage.automation.svc:8080/' + endpoint)
+            self.assertEqual(p['url'], 'http://10.43.194.185:8080/' + endpoint)
             self.assertEqual(p['method'], 'POST')
             self.assertEqual(p['genericAuthType'], 'httpHeaderAuth')
             self.assertEqual(p['authentication'], 'genericCredentialType')

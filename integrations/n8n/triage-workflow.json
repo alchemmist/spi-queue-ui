@@ -31,7 +31,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://spi-triage.automation.svc:8080/claim",
+        "url": "http://10.43.194.185:8080/claim",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -81,7 +81,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://spi-triage.automation.svc:8080/match",
+        "url": "http://10.43.194.185:8080/match",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -118,7 +118,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://spi-triage.automation.svc:8080/collect",
+        "url": "http://10.43.194.185:8080/collect",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -155,7 +155,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://spi-triage.automation.svc:8080/analyze",
+        "url": "http://10.43.194.185:8080/analyze",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
@@ -192,7 +192,7 @@
       ],
       "parameters": {
         "method": "POST",
-        "url": "http://spi-triage.automation.svc:8080/publish",
+        "url": "http://10.43.194.185:8080/publish",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
